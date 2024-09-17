@@ -43,7 +43,7 @@ if __name__ == "__main__":
     time_seq = generate_time_sequence(normalised_time_points, time_seq_spacing)
     time_seq = torch.tensor(time_seq, device=device, dtype=torch.float32)
     I_0 = images[0]  # moving #260, 260, 200
-    I_t = images
+    I_t = images[2]
     print("######################Registering across time: {} in years##################".format(args.time))
 
     patch_size = [24 for _ in range(len(I_0.shape))]
