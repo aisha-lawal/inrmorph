@@ -1,6 +1,6 @@
 from settings import *
 from utils import generate_random_sum, generate_time_sequence, load_data, CoordsPatchesTrain, CoordsImageTest, CoordsPatch
-from lowhighfieldreg import LowHighFieldReg
+from inrmorph import INRMorph
 
 
 def main():
