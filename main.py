@@ -1,22 +1,21 @@
 from settings import *
 from utils import generate_random_sum, generate_time_sequence, load_data, CoordsPatchesTrain, CoordsImageTest, CoordsPatch
-from inrmorph import INRMorph
+from inrmorph import InrMorph
 
 
 def main():
     train_generator = DataLoader(dataset=CoordsPatch(patch_size=patch_size,
-                                                     npatches=npatches_train, imgshape=I_0.shape),
+                                                     npatches=npatches_train, imgshape=I0.shape),
                                  batch_size=batch_size, shuffle=True, num_workers=8, drop_last=True)
     val_generator = DataLoader(dataset=CoordsPatch(patch_size=patch_size,
-                                                   npatches=npatches_val, imgshape=I_0.shape), batch_size=batch_size,
+                                                   npatches=npatches_val, imgshape=I0.shape), batch_size=batch_size,
                                shuffle=False, num_workers=8, drop_last=True)
+    model = InrMorph(I0, It, I0_mask, It_mask, patch_size, spatial_reg, temporal_reg, batch_size, args.network_type,
+                            args.similarity_metric, args.gradient_type, args.loss_type)
 
-    model = INRMorph(I_0, I_t, patch_size, spatial_reg, temporal_reg, batch_size, args.network_type,
-                            args.similarity_metric, args.gradient_type, args.loss_type, time_seq, observed_indx)
-
-    # model = torch.compile(model)
-    trainer = Trainer(fast_dev_run=False, max_epochs=150, log_every_n_steps=50, accelerator="auto", devices="auto",
-                      strategy="auto", callbacks=[model_checkpoint], logger=logger, precision="32")
+    trainer = Trainer(fast_dev_run=False, max_epochs=250, log_every_n_steps=50, accelerator="auto", devices="auto",
+                       strategy="auto", callbacks=[model_checkpoint], logger=logger, precision="32")
+    print("######################Training##################")
     # trainer = Trainer(fast_dev_run=True, max_epochs=50, log_every_n_steps=150, accelerator="auto", devices="auto",strategy="auto", precision="32", overfit_batches=100)
     trainer.fit(model=model, train_dataloaders=train_generator, val_dataloaders=val_generator)
 
@@ -29,12 +28,17 @@ if __name__ == "__main__":
 
     args = arg()
     model_checkpoint, early_stopping, logger = wandb_setup()
-    datapath = "dataset/" + args.subjectID + "/resampled/"
+    datapath = "data/" + args.subjectID + "/resampled/"
     data = sorted(glob.glob(datapath + "I*.nii"))
+    datamask = sorted(glob.glob(datapath + "/masks/I*.nii.gz"))
 
-    images = []
-    for img in data:
-        images.append(load_data(img))
+    images = [load_data(img, True) for img in data]
+    masks = [load_data(mask, False) for mask in datamask]
+    """
+    Retrieve time points
+    """
+
+    # time_points = get_time_points(data)
 
     time_points = torch.tensor(args.time)
     normalised_time_points = time_points/12
@@ -42,15 +46,26 @@ if __name__ == "__main__":
     observed_indx = [34, 48, 99]
     time_seq = generate_time_sequence(normalised_time_points, time_seq_spacing)
     time_seq = torch.tensor(time_seq, device=device, dtype=torch.float32)
-    I_0 = images[0]  # moving #260, 260, 200
-    I_t = images[2]
+
+
+    I0 = images[0]  # moving #260, 260, 200
+    It = images[3]
+
+    I0_mask = masks[0]
+    It_mask = masks[3]
+
+
+    # I0 = load_data("dataset/moving.nii.gz")
+    # It = load_data("dataset/fixed.nii.gz")
     print("######################Registering across time: {} in years##################".format(args.time))
 
-    patch_size = [24 for _ in range(len(I_0.shape))]
+    patch_size = [12 for _ in range(len(I0.shape))]
 
-    npatches_train = 900
-    npatches_val = 300
-    batch_size = 4
-    spatial_reg = 1e+4
+    npatches_train = 2000
+    npatches_val = 1000
+    batch_size = 48
+    # spatial_reg = 100 #for FD
+    # spatial_reg = 10
+    spatial_reg = 1
     temporal_reg = 1e+6
     main()

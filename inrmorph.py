@@ -3,7 +3,7 @@ from utils import PositionalEncoding, SpatialTransform, SmoothDeformationField
 
 
 ##############################MAIN REGISTRATION CLASS#######################
-class INRMorph(pl.LightningModule):
+class InrMorph(pl.LightningModule):
     def __init__(self, *args: Any):
         super().__init__()
         (self.I_0, self.I_t, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
@@ -15,9 +15,7 @@ class INRMorph(pl.LightningModule):
         self.time_features = 64
         self.in_features = self.ndims
         self.out_features = self.ndims
-
         self.hidden_features = 256
-
         self.num_layers = 5
 
         self.embedding_const = 10000
