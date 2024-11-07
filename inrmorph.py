@@ -6,64 +6,45 @@ from utils import PositionalEncoding, SpatialTransform, SmoothDeformationField
 class InrMorph(pl.LightningModule):
     def __init__(self, *args: Any):
         super().__init__()
-        (self.I_0, self.I_t, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
-         self.batch_size, self.network_type, self.similarity_metric, self.gradient_type, self.loss_type, self.time,
-         self.observed_idx) = args
-        self.len_time_seq = len(self.time)
+        (self.I0, self.It, self.I0_mask, self.It_mask, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
+         self.batch_size, self.network_type, self.similarity_metric, self.gradient_type, self.loss_type) = args
         self.ndims = len(self.patch_size)
 
-        self.time_features = 64
         self.in_features = self.ndims
         self.out_features = self.ndims
         self.hidden_features = 256
-        self.num_layers = 5
-
-        self.embedding_const = 10000
-
-        self.positional_encoding = PositionalEncoding(self.len_time_seq, self.time_features,
-                                                      self.embedding_const).encode()
-
+        self.hidden_layers = 5
         self.omega = 30
+        self.first_omega = 30
+        self.hidden_omega = 30
+        self.init_method = "sine"
+        self.init_gain = 1
+        self.fbs = 10 # k for bias initialization according to paper optimal
+
         assert self.loss_type in ["L1", "L2"], "Invalid loss type"
-        assert self.gradient_type in ["finite_difference", "direct_gradient"], "Invalid computation type"
-        assert self.network_type in ["siren", "relu"], "Invalid network type"
+        assert self.gradient_type in ["finite_difference", "analytic_gradient"], "Invalid computation type"
+        assert self.network_type in ["siren", "relu", "finer"], "Invalid network type"
         self.transform = SpatialTransform()
         self.smoothness = SmoothDeformationField(self.loss_type, self.gradient_type, self.patch_size,
                                                  self.batch_size)
-        self.samples = len(self.I_t)
 
 
-        if self.network_type == "siren":
+        if self.network_type == "finer":
+            
+            self.mapping = Finer(in_features=self.in_features, out_features=self.out_features, hidden_layers=self.hidden_layers, hidden_features=self.hidden_features,
+                      first_omega=self.first_omega, hidden_omega=self.hidden_omega,
+                      init_method=self.init_method, init_gain=self.init_gain, fbs=self.fbs)
 
-            self.mapping = Siren(layers=[self.in_features, *[self.hidden_features + (self.time_features * i) for i in
-                                                             range(self.num_layers)], self.out_features],
-                                 omega=self.omega, time_features=self.time_features)
-
-            # self.mapping = Siren(layers=[self.in_features, *[self.hidden_features + i * (self.time_features * 2) for
-            #                                                  i in range(self.num_layers)], self.out_features],
-            #                      omega=self.omega, time_features=self.time_features)
-
-        else:
-            self.mapping = ReLU(layers=[self.in_features, *[self.hidden_features + i * (self.time_features * 2) for
-                                                            i in range(self.num_layers)], self.out_features],
-                                time_features=self.time_features)
-
-        self.t_embedding = self.time_embedding(self.time_features)
+        elif self.network_type == "siren":
+            
+            self.mapping = Siren(layers=[self.in_features, *[self.hidden_features for i in
+                                                             range(self.hidden_layers)], self.out_features],omega=self.omega)
 
 
     def forward(self, coords):
 
-        displacement_t = torch.zeros(self.len_time_seq, self.batch_size, np.prod(self.patch_size), self.ndims).to(
-            self.device)
-        # pass single time for each point over the entire batch
-        pos_enc = self.positional_encoding.unsqueeze(0).unsqueeze(0).permute(2, 0, 1,
-                                                                             3)  # shape of [100, 1, 1, tim_features]
-        time = self.time.expand(1, self.batch_size, coords.shape[1], self.time.shape[-1]).permute(3, 1, 2,
-                                                                                                  0)  # shape of  [100, batch_size, patch_size, 1]
-        time_embedding = self.t_embedding(time)  # shape of [100, batch_size, patch_size, time_features]
-        time_embedding = time_embedding + pos_enc
-        for t in range(self.len_time_seq):
-            displacement_t[t] = self.mapping(coords, time_embedding[t])
+        displacement_t = self.mapping(coords)
+
         return displacement_t
 
     def training_step(self, batch, batch_idx):
@@ -73,9 +54,12 @@ class InrMorph(pl.LightningModule):
         return train_loss
 
     def validation_step(self, batch, batch_idx):
-        # torch.set_grad_enabled(True)
+        torch.set_grad_enabled(True)
         coords = batch
         val_loss = self.train_val_pipeline(coords, "val")
+        # if self.current_epoch % 50 == 0:
+
+        #     self.visualize_mid_train()
 
         return val_loss
 
@@ -84,90 +68,60 @@ class InrMorph(pl.LightningModule):
         coords = coords.view(self.batch_size, np.prod(self.patch_size), self.ndims)
         coords = coords.clone().detach().requires_grad_(True)
         displacement = self.forward(coords)
-        warped_t, fixed_t, deformation_field_t = self.compute_transform(coords, displacement)
-        loss_at_0, total_ncc, ncc_with_spatial_smoothness, spatial_smoothness, temporal_smoothness, loss = self.compute_loss(
-            warped_t,
-            fixed_t,
-            deformation_field_t,
-            coords)
+        warped_t, fixed_t, deformation_field_t, mask = self.compute_transform(coords, displacement)
+       
+        ncc, smoothness, loss = self.compute_loss(warped_t, fixed_t, deformation_field_t, mask, coords)
 
+        self.log(f"{process}_ncc", ncc, on_epoch=True, sync_dist=True, on_step=False)
+        self.log(f"{process}_spatial_smoothness", smoothness, on_epoch=True, sync_dist=True, on_step=False)
         self.log(f"{process}_loss", loss, on_epoch=True, sync_dist=True, on_step=False)
-        self.log(f"{process}_ncc_spatial_smoothness", ncc_with_spatial_smoothness, on_epoch=True, sync_dist=True,
-                 on_step=False)
-        self.log(f"{process}_spatial_smoothness", spatial_smoothness, on_epoch=True, sync_dist=True, on_step=False)
-        self.log(f"{process}_temporal_smoothness", temporal_smoothness, on_epoch=True, sync_dist=True, on_step=False)
-        self.log(f"{process}_ncc", total_ncc, on_epoch=True, sync_dist=True, on_step=False)
-        self.log(f"{process}_loss_at_0", loss_at_0, on_epoch=True, sync_dist=True, on_step=False)
 
         return loss
 
-    def test_step(self, batch, time):
+    def test_step(self, batch):
         coords = batch
-        batch_size = 1
         coords = coords.unsqueeze(0)
-        tm = time.unsqueeze(0).unsqueeze(0)
-
-        tm = tm.expand(batch_size, coords.shape[1], 1)
-
-        tm = self.t_embedding(tm)
-        displacement = self.mapping(coords, tm)
+       
+        displacement = self.mapping(coords)
 
         return displacement
 
 
+   
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-5)
-        # add scheduler
         return optimizer
+   
 
-    def time_embedding(self, out_features):
-        hidden_features = 10
-        mapping = nn.Sequential(
-            nn.Linear(1, hidden_features),
-            nn.LeakyReLU(0.2),
-            nn.Linear(hidden_features, out_features),
-        )
-        for module in [mapping]:
-            for layer in module.modules():
-                if isinstance(layer, nn.Linear):
-                    # init.kaiming_uniform_(layer.weight, nonlinearity='leaky_relu', a=0.2)
-                    init.xavier_uniform_(layer.weight)
-                    init.zeros_(layer.bias)
-        return mapping
+
 
     def compute_transform(self, coords, displacement):
         """
         Args:
-            displacement (list of torch.tensor (*patch_size, ndims)): predicted displacement for each t in I_t
-            coords (torch.tensor): original coordinate used for warped
+        Here the baseline cooridnate (coords) serve as a reference coordinate which we align to. 
+            - displacement (list of torch.tensor (*patch_size, ndims)): predicted displacement for each t in It, how  each point
+            in the baseline should move to match the morphology of the followup at each point t
+            - coords (torch.tensor): original coordinate used for warped
+            - we warp the follow up image to the baseline coordinate for each t, to have a uniform coordinate system (baseline)
             warp function at time = 0 should be the identity transform
+
         """
-        deformation_field_t = []  # len of displacement
-        warped_t = []  # len observed samples - 1
-        fixed_t = []  # len observed samples - 1
-        for idx, time in enumerate(self.time):
-            deformation_field_t.append(
-                torch.add(displacement[idx], coords))  # shift coordinates [batch_size, flattened_patch_size, ndims]
-            if idx != 0 and idx in self.observed_idx:
-                warped_t.append(
-                    self.transform.trilinear_interpolation(coords=deformation_field_t[self.observed_idx.index(idx)],
-                                                           img=self.I_0).view(self.batch_size,
-                                                                              *self.patch_size))  # [batch_size, *patch_size]
+        deformation_field = torch.add(displacement, coords)  #apply the displacement relative to the baseline coordinate (coords)
+        warped = self.transform.trilinear_interpolation(coords=deformation_field, img=self.I0).view(self.batch_size, *self.patch_size)
+        fixed = self.transform.trilinear_interpolation(coords=coords, img=self.It).view(self.batch_size, *self.patch_size) #resampling to the baseline coordinate
 
-                fixed_t.append(self.transform.trilinear_interpolation(coords=coords,
-                                                                         img=self.I_t[
-                                                                             self.observed_idx.index(idx)]).view(
-                    self.batch_size,
-                    *self.patch_size))
-        return warped_t, fixed_t, deformation_field_t  # 3, 3, 100
+        mask = self.transform.nearest_neighbor_interpolation(coords=coords, img=self.It_mask).view(self.batch_size, *self.patch_size)
+        
 
-    def compute_loss(self, warped_t, fixed_t, deformation_field_t, coords):
+        return warped, fixed, deformation_field, mask
+
+    def compute_loss(self, warped_t, fixed_t, deformation_field_t, mask, coords):
         """
         Args: 
             warped_t (list of torch.Tensor): contains warped images at time t of shape
             [batch_size, *patch_size] i.e [batch_size, 32, 32, 32]
 
-            fixed_t (list of torch.Tensor): list contains I_t at time t warped with original coords of shape 
+            fixed_t (list of torch.Tensor): list contains It at time t warped with original coords of shape 
             [batch_size, *patch_size] i.e [batch_size, 32, 32, 32]
 
             deformation_field_t (list of torch.Tensor): contains deformation field at time t of shape [batch_size, flattened_patch, ndims]
@@ -177,80 +131,167 @@ class InrMorph(pl.LightningModule):
         Returns: 
 
         """
-        loss_at_t = 0
-        total_spatial_smoothness = 0
-        total_loss_with_spatial_smoothness_at_t = 0
-        total_temporal_smoothness = 0
-        count_idx = 0
+        # masked_warped_t = warped_t * mask
+        # masked_fixed_t = fixed_t * mask
+        
+        masked_warped_t = warped_t
+        masked_fixed_t = fixed_t
+        ncc = self.ncc_loss(masked_warped_t, masked_fixed_t)  
+        spatial_smoothness = self.smoothness.spatial(deformation_field_t, coords, mask) * self.spatial_reg_weight
 
-        for idx, _ in enumerate(self.time):
-            # similarity computation
+        #turn off spatial smoothness at epoch 300
+        # if self.current_epoch >= 250:
+        #     spatial_smoothness = 1e-6
 
-            if idx == 0:
-                dx = deformation_field_t[idx][:, :, 0] - coords[:, :, 0]  # shape [batch_size, flattenedpatch, ndims]
-                dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
-                dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
+        total_loss = ncc + spatial_smoothness
 
-                loss_at_0 = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
-
-            elif idx != 0 and idx in self.observed_idx:  # skip observed indices
-
-                ncc_loss = self.ncc_loss(warped_t[count_idx], fixed_t[count_idx])
-                loss_at_t += ncc_loss
-
-                # spatial smoothness
-
-                spatial_smoothness_at_t = self.smoothness.spatial(deformation_field_t[idx], coords)
-                total_spatial_smoothness += spatial_smoothness_at_t * self.spatial_reg_weight
-
-                # ncc with spatial smoothness
-                total_loss_with_spatial_smoothness_at_t += (ncc_loss + (self.spatial_reg_weight *
-                                                                        spatial_smoothness_at_t))
-                count_idx += 1
-
-            # else: #for unobserved samples
-            #     spatial_smoothness_at_t = self.smoothness.spatial(deformation_field_t[idx], coords)
-            #     total_spatial_smoothness += spatial_smoothness_at_t * self.spatial_reg_weight
-
-
-        total_temporal_smoothness = (self.smoothness.temporal(deformation_field_t,
-                                                              coords) / self.len_time_seq) * self.temporal_reg_weight
-        total_loss = (loss_at_0 + (total_loss_with_spatial_smoothness_at_t /
-                                   (self.samples - 1))) + total_temporal_smoothness
-
-        print("Loss at 0: {}, Loss at t: {},  loss at t with Spatial Smoothness: {}, Spatial Smoothness: {}, TempralReg: {} -> Total loss: {} ".format(loss_at_0, loss_at_t/(self.samples -1),
-                                                                                                                                                       total_loss_with_spatial_smoothness_at_t/(self.samples-1), total_spatial_smoothness/(self.samples-1), total_temporal_smoothness, total_loss))
-        # wandb log image after 20 epochs
-        return loss_at_0, loss_at_t / (self.samples - 1), total_loss_with_spatial_smoothness_at_t / (
-                self.samples - 1), total_spatial_smoothness / (
-                                  self.samples - 1), total_temporal_smoothness, total_loss
+        print("NCC: {}, Smoothness: {}, Total loss {}".format(ncc, spatial_smoothness, total_loss))
+        return ncc, spatial_smoothness, total_loss
 
     def mse_loss(self, warped_pixels, fixed_pixels):
         return torch.mean((fixed_pixels - warped_pixels) ** 2)
 
     def ncc_loss(self, warped_pixels, fixed_pixels):
-
+        """
+        This should be patchwise
+        """
         nominator = ((fixed_pixels - fixed_pixels.mean()) *
                      (warped_pixels - warped_pixels.mean())).mean()
 
         denominator = fixed_pixels.std() * warped_pixels.std()
 
         cc = (nominator + 1e-6) / (denominator + 1e-6)
-
         return -torch.mean(cc)
 
 
-###################SIREN ###############
 
-# From INR IR paper
+    def visualize_mid_train(self):
+        batch_size = 13520
+        image_vector = CoordsImageTest(self.I0.shape, scale_factor = 1)
+        test_generator = DataLoader(dataset = image_vector, batch_size=batch_size, shuffle = False)
+        with torch.no_grad():
+
+            for k, coords in enumerate(test_generator):
+                coords = coords.squeeze().to(device, dtype=torch.float32)
+                displacement_vector = self.test_step(coords)
+                deformation_field = torch.add(displacement_vector, coords)
+                deformation_field = deformation_field.cpu().detach()
+
+                if k==0:
+
+                    total_deformation_field = deformation_field
+                else:
+                    total_deformation_field = torch.cat((total_deformation_field, deformation_field), 0)
+
+            temp_moved = self.transform.trilinear_interpolation(total_deformation_field, self.I0).view(self.I0.shape) 
+            temp_moved = temp_moved.numpy().squeeze()
+
+            self.wandb_log_images(self.It, self.I0, temp_moved, total_deformation_field, slice)
+            del temp_moved
+
+
+    def wandb_log_images(self, It, I0, moved, mask, deformation_field_t, slice):
+        images = {
+                    "It": wandb.Image(It[0][:, :, slice].cpu().detach().numpy()),
+                    "I0": wandb.Image(I0[0][:, :, slice].cpu().detach().numpy()),
+                    "warped": wandb.Image(moved[0][:, :, slice].cpu().detach().numpy()),
+                    "deformation_field": wandb.Image(deformation_field_t.view(self.batch_size, *self.patch_size, self.ndims)[0][:, :, slice, -1].cpu().detach().numpy())
+                }
+                
+        wandb.log({"images": images})
+
+# FINER
+
+############### WEIGHTS INITIALIZATION ############################
+# weights are initilized same as SIREN
+def init_weights_cond(init_method, linear, omega=1, c=1, is_first=False):
+    init_method = init_method.lower()
+    if init_method == 'sine':
+        init_weights(linear, omega, 6, is_first)  
+
+def init_weights(m, omega=1, c=1, is_first=False): # Default: Pytorch initialization
+    if hasattr(m, 'weight'):
+        fan_in = m.weight.size(-1)
+        if is_first: # 1/infeatures for first layer
+            bound = 1 / fan_in 
+        else:
+            bound = np.sqrt(c / fan_in) / omega
+        init.uniform_(m.weight, -bound, bound)
+
+############### BIAS INITIALIZATION ############################
+#bias are initialized as a uniform distribution between -k and k
+def init_bias(m, k):
+    if hasattr(m, 'bias'):
+        init.uniform_(m.bias, -k, k)
+
+def init_bias_cond(linear, fbs=None, is_first=True):
+    if is_first and fbs != None:
+        init_bias(linear, fbs)
+
+############### FINER ACTIVATION FUNCTION ############################
+# according to the paper, the activation function is sin(omega * alpha(x) * x), where alpha(x) = |x| + 1
+def generate_alpha(x):
+    with torch.no_grad():
+        return torch.abs(x) + 1
+    
+def finer_activation(x, omega=1):
+    return torch.sin(omega * generate_alpha(x) * x)
+
+
+class FinerLayer(nn.Module):
+    def __init__(self, in_features, out_features, bias=True, omega=30, 
+                 is_first=False, is_last=False, 
+                 init_method='sine', init_gain=1, fbs=None, hbs=None):
+        super().__init__()
+        self.omega = omega
+        self.is_last = is_last ## no activation
+        self.linear = nn.Linear(in_features, out_features, bias=bias)
+        
+        # init weights
+        init_weights_cond(init_method, self.linear, omega, init_gain, is_first)
+        # init bias
+        init_bias_cond(self.linear, fbs, is_first)
+    
+    def forward(self, input):
+        wx_b = self.linear(input) 
+        if not self.is_last:
+            return finer_activation(wx_b, self.omega) #no activation for last layer
+        return wx_b # is_last==True
+
+      
+class Finer(nn.Module):
+    def __init__(self, in_features=3, out_features=3, hidden_layers=3, hidden_features=256, 
+                 first_omega=30, hidden_omega=30, 
+                 init_method='sine', init_gain=1, fbs=None, hbs=None):
+        super().__init__()
+        self.net = []
+        self.net.append(FinerLayer(in_features, hidden_features, is_first=True, 
+                                   omega=first_omega, 
+                                   init_method=init_method, init_gain=init_gain, fbs=fbs))
+
+        for i in range(hidden_layers):
+            self.net.append(FinerLayer(hidden_features, hidden_features, 
+                                       omega=hidden_omega, 
+                                       init_method=init_method, init_gain=init_gain, hbs=hbs))
+
+        self.net.append(FinerLayer(hidden_features, out_features, is_last=True, 
+                                   omega=hidden_omega, 
+                                   init_method=init_method, init_gain=init_gain, hbs=hbs)) # omega: For weight init
+        self.net = nn.Sequential(*self.net)
+
+    def forward(self, coords):
+        return self.net(coords)
+
+
+##############SIREN####################
+
 class Siren(nn.Module):
 
-    def __init__(self, layers, omega, time_features):
+    def __init__(self, layers, omega):
 
         super(Siren, self).__init__()
         self.n_layers = len(layers) - 1
         self.omega = omega
-        self.time_features = time_features
 
         # Make the layers
         self.layers = []
@@ -261,7 +302,7 @@ class Siren(nn.Module):
                     self.layers.append(nn.Linear(layers[i], layers[i + 1]))
                     self.layers[-1].weight.uniform_(-1 / layers[i], 1 / layers[i])
                 else:
-                    self.layers.append(nn.Linear(layers[i] + self.time_features, layers[i + 1]))
+                    self.layers.append(nn.Linear(layers[i], layers[i + 1]))
                     self.layers[-1].weight.uniform_(
                         -np.sqrt(6 / layers[i]) / self.omega,
                         np.sqrt(6 / layers[i]) / self.omega,
@@ -269,14 +310,14 @@ class Siren(nn.Module):
 
         self.layers = nn.Sequential(*self.layers)
 
-    def forward(self, coords, time):
+    def forward(self, coords):
 
         for layer in self.layers[:-1]:
             coords = torch.sin(self.omega * layer(coords))
-            coords = torch.cat([coords, time], dim=-1)
 
         return self.layers[-1](coords)
 
+################ReLU####################
 
 class ReLU(nn.Module):
     def __init__(self, layers, time_features):
@@ -299,3 +340,6 @@ class ReLU(nn.Module):
             coords = torch.cat([coords, time], dim=-1)
 
         return self.layers[-1](coords)
+
+class SegmentationLoss():
+    pass

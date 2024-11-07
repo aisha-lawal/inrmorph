@@ -45,7 +45,7 @@ def arg():
     parser.add_argument("--network_type", type=str,
                 dest="network_type",
                 default='siren',
-                help="relu or siren")
+                help="relu, finer, or siren")
     
     parser.add_argument("--dir_path", type=str,
                 dest="dir_path",

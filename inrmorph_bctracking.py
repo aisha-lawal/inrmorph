@@ -3,7 +3,7 @@ from utils import PositionalEncoding, SpatialTransform, SmoothDeformationField
 
 
 ##############################MAIN REGISTRATION CLASS#######################
-class INRMorph(pl.LightningModule):
+class InrMorph(pl.LightningModule):
     def __init__(self, *args: Any):
         super().__init__()
         (self.I_0, self.I_t, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
@@ -15,9 +15,7 @@ class INRMorph(pl.LightningModule):
         self.time_features = 64
         self.in_features = self.ndims
         self.out_features = self.ndims
-
         self.hidden_features = 256
-
         self.num_layers = 5
 
         self.embedding_const = 10000
@@ -55,7 +53,17 @@ class INRMorph(pl.LightningModule):
 
     def forward(self, coords):
 
-        displacement_t = self.mapping(coords)
+        displacement_t = torch.zeros(self.len_time_seq, self.batch_size, np.prod(self.patch_size), self.ndims).to(
+            self.device)
+        # pass single time for each point over the entire batch
+        pos_enc = self.positional_encoding.unsqueeze(0).unsqueeze(0).permute(2, 0, 1,
+                                                                             3)  # shape of [100, 1, 1, tim_features]
+        time = self.time.expand(1, self.batch_size, coords.shape[1], self.time.shape[-1]).permute(3, 1, 2,
+                                                                                                  0)  # shape of  [100, batch_size, patch_size, 1]
+        time_embedding = self.t_embedding(time)  # shape of [100, batch_size, patch_size, time_features]
+        time_embedding = time_embedding + pos_enc
+        for t in range(self.len_time_seq):
+            displacement_t[t] = self.mapping(coords, time_embedding[t])
         return displacement_t
 
     def training_step(self, batch, batch_idx):
@@ -77,7 +85,11 @@ class INRMorph(pl.LightningModule):
         coords = coords.clone().detach().requires_grad_(True)
         displacement = self.forward(coords)
         warped_t, fixed_t, deformation_field_t = self.compute_transform(coords, displacement)
-        total_ncc = self.compute_loss(warped_t, fixed_t, deformation_field_t, coords)
+        loss_at_0, total_ncc, ncc_with_spatial_smoothness, spatial_smoothness, temporal_smoothness, loss = self.compute_loss(
+            warped_t,
+            fixed_t,
+            deformation_field_t,
+            coords)
 
         self.log(f"{process}_loss", loss, on_epoch=True, sync_dist=True, on_step=False)
         self.log(f"{process}_ncc_spatial_smoothness", ncc_with_spatial_smoothness, on_epoch=True, sync_dist=True,
@@ -130,11 +142,24 @@ class INRMorph(pl.LightningModule):
             coords (torch.tensor): original coordinate used for warped
             warp function at time = 0 should be the identity transform
         """
-        deformation_field = torch.add(displacement, coords)
-        warped = self.transform.trilinear_interpolation(coords=deformation_field, img=self.I_0).view(self.batch_size, *self.patch_size)
-        fixed = self.transform.trilinear_interpolation(coords=coords, img=self.I_t).view(self.batch_size, *self.patch_size)
+        deformation_field_t = []  # len of displacement
+        warped_t = []  # len observed samples - 1
+        fixed_t = []  # len observed samples - 1
+        for idx, time in enumerate(self.time):
+            deformation_field_t.append(
+                torch.add(displacement[idx], coords))  # shift coordinates [batch_size, flattened_patch_size, ndims]
+            if idx != 0 and idx in self.observed_idx:
+                warped_t.append(
+                    self.transform.trilinear_interpolation(coords=deformation_field_t[self.observed_idx.index(idx)],
+                                                           img=self.I_0).view(self.batch_size,
+                                                                              *self.patch_size))  # [batch_size, *patch_size]
 
-        return warped, fixed, deformation_field
+                fixed_t.append(self.transform.trilinear_interpolation(coords=coords,
+                                                                         img=self.I_t[
+                                                                             self.observed_idx.index(idx)]).view(
+                    self.batch_size,
+                    *self.patch_size))
+        return warped_t, fixed_t, deformation_field_t  # 3, 3, 100
 
     def compute_loss(self, warped_t, fixed_t, deformation_field_t, coords):
         """
@@ -152,11 +177,53 @@ class INRMorph(pl.LightningModule):
         Returns: 
 
         """
-        ncc = self.ncc_loss(warped_t, fixed_t)  
+        loss_at_t = 0
+        total_spatial_smoothness = 0
+        total_loss_with_spatial_smoothness_at_t = 0
+        total_temporal_smoothness = 0
+        count_idx = 0
+
+        for idx, _ in enumerate(self.time):
+            # similarity computation
+
+            if idx == 0:
+                dx = deformation_field_t[idx][:, :, 0] - coords[:, :, 0]  # shape [batch_size, flattenedpatch, ndims]
+                dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
+                dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
+
+                loss_at_0 = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
+
+            elif idx != 0 and idx in self.observed_idx:  # skip observed indices
+
+                ncc_loss = self.ncc_loss(warped_t[count_idx], fixed_t[count_idx])
+                loss_at_t += ncc_loss
+
+                # spatial smoothness
+
+                spatial_smoothness_at_t = self.smoothness.spatial(deformation_field_t[idx], coords)
+                total_spatial_smoothness += spatial_smoothness_at_t * self.spatial_reg_weight
+
+                # ncc with spatial smoothness
+                total_loss_with_spatial_smoothness_at_t += (ncc_loss + (self.spatial_reg_weight *
+                                                                        spatial_smoothness_at_t))
+                count_idx += 1
+
+            # else: #for unobserved samples
+            #     spatial_smoothness_at_t = self.smoothness.spatial(deformation_field_t[idx], coords)
+            #     total_spatial_smoothness += spatial_smoothness_at_t * self.spatial_reg_weight
 
 
-        print("Loss: {}".format(ncc))
-        return ncc
+        total_temporal_smoothness = (self.smoothness.temporal(deformation_field_t,
+                                                              coords) / self.len_time_seq) * self.temporal_reg_weight
+        total_loss = (loss_at_0 + (total_loss_with_spatial_smoothness_at_t /
+                                   (self.samples - 1))) + total_temporal_smoothness
+
+        print("Loss at 0: {}, Loss at t: {},  loss at t with Spatial Smoothness: {}, Spatial Smoothness: {}, TempralReg: {} -> Total loss: {} ".format(loss_at_0, loss_at_t/(self.samples -1),
+                                                                                                                                                       total_loss_with_spatial_smoothness_at_t/(self.samples-1), total_spatial_smoothness/(self.samples-1), total_temporal_smoothness, total_loss))
+        # wandb log image after 20 epochs
+        return loss_at_0, loss_at_t / (self.samples - 1), total_loss_with_spatial_smoothness_at_t / (
+                self.samples - 1), total_spatial_smoothness / (
+                                  self.samples - 1), total_temporal_smoothness, total_loss
 
     def mse_loss(self, warped_pixels, fixed_pixels):
         return torch.mean((fixed_pixels - warped_pixels) ** 2)

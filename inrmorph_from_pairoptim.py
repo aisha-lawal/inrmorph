@@ -36,7 +36,6 @@ class InrMorph(pl.LightningModule):
                       init_method=self.init_method, init_gain=self.init_gain, fbs=self.fbs)
 
         elif self.network_type == "siren":
-
             
             self.mapping = Siren(layers=[self.in_features, *[self.hidden_features for i in
                                                              range(self.hidden_layers)], self.out_features],omega=self.omega)
