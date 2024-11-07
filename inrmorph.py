@@ -9,7 +9,7 @@ class InrMorph(pl.LightningModule):
         (self.I0, self.It, self.I0_mask, self.It_mask, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
          self.batch_size, self.network_type, self.similarity_metric, self.gradient_type, self.loss_type, self.time) = args
         self.ndims = len(self.patch_size)
-
+        self.nsamples = len(self.It)
         self.time_features = 64
         self.in_features = self.ndims
         self.out_features = self.ndims
@@ -83,8 +83,8 @@ class InrMorph(pl.LightningModule):
         # flatten to shape [batch_size, flattened_patch_size, ndims]
         coords = coords.view(self.batch_size, np.prod(self.patch_size), self.ndims)
         coords = coords.clone().detach().requires_grad_(True)
-        displacement = self.forward(coords)
-        warped_t, fixed_t, deformation_field_t, mask = self.compute_transform(coords, displacement)
+        displacement_t = self.forward(coords)
+        warped_t, fixed_t, deformation_field_t, mask = self.compute_transform(coords, displacement_t)
        
         ncc, smoothness, loss = self.compute_loss(warped_t, fixed_t, deformation_field_t, mask, coords)
 
@@ -102,7 +102,6 @@ class InrMorph(pl.LightningModule):
         tm = tm.expand(batch_size, coords.shape[1], 1)
 
         tm = self.t_mapping(tm)
-        input = torch.cat([coords, t_n], dim=-1)  
         displacement = self.mapping(input, tm)
 
         return displacement
@@ -127,16 +126,17 @@ class InrMorph(pl.LightningModule):
             warp function at time = 0 should be the identity transform
 
         """
-        deformation_field = torch.add(displacement, coords)  #apply the displacement relative to the baseline coordinate (coords)
-        warped = self.transform.trilinear_interpolation(coords=deformation_field, img=self.I0).view(self.batch_size, *self.patch_size)
-        fixed = self.transform.trilinear_interpolation(coords=coords, img=self.It).view(self.batch_size, *self.patch_size) #resampling to the baseline coordinate
+        displacement_field_t = []
+        warped_t = []
+        fixed_t = []
+        for t, idx in enumerate(self.time):
+            displacement_field_t.append(torch.add(displacement[idx], coords)) #apply the displacement relative to the baseline coordinate (coords)
+            warped_t.append(self.transform.trilinear_interpolation(coords=deformation_field_t[idx], img=self.I0).view(self.batch_size, *self.patch_size))
+            fixed_t.append(self.transform.trilinear_interpolation(coords=coords, img=self.It[idx]).view(self.batch_size, *self.patch_size)) #resampling to the baseline coordinate
 
-        mask = self.transform.nearest_neighbor_interpolation(coords=coords, img=self.It_mask).view(self.batch_size, *self.patch_size)
-        
+        return warped, fixed, deformation_field
 
-        return warped, fixed, deformation_field, mask
-
-    def compute_loss(self, warped_t, fixed_t, deformation_field_t, mask, coords):
+    def compute_loss(self, warped_t, fixed_t, deformation_field_t, coords):
         """
         Args: 
             warped_t (list of torch.Tensor): contains warped images at time t of shape
@@ -152,19 +152,19 @@ class InrMorph(pl.LightningModule):
         Returns: 
 
         """
-        # masked_warped_t = warped_t * mask
-        # masked_fixed_t = fixed_t * mask
-        
-        masked_warped_t = warped_t
-        masked_fixed_t = fixed_t
-        ncc = self.ncc_loss(masked_warped_t, masked_fixed_t)  
-        spatial_smoothness = self.smoothness.spatial(deformation_field_t, coords, mask) * self.spatial_reg_weight
+        total_loss = 0
+        ncc = 0
+        spatial_smoothness = 0
+        for idx in range(self.samples):
+            ncc += self.ncc_loss(warped_t[idx], fixed_t[idx])
+            spatial_smoothness += self.smoothness.spatial(deformation_field_t[idx], coords) * self.spatial_reg_weight
+            total_loss += (ncc + spatial_smoothness)
 
         #turn off spatial smoothness at epoch 300
         # if self.current_epoch >= 250:
         #     spatial_smoothness = 1e-6
 
-        total_loss = ncc + spatial_smoothness
+       
 
         print("NCC: {}, Smoothness: {}, Total loss {}".format(ncc, spatial_smoothness, total_loss))
         return ncc, spatial_smoothness, total_loss
