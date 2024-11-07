@@ -22,18 +22,30 @@ def mse_loss(*args: Any) -> int: #args = tuple of moving and fixed image
 
 ################DATA LOADING AND PATCHING STUFF###########
     
-def load_data(path: str) -> torch.tensor: #256, 256, 166
+def load_data(path: str, image) -> torch.tensor: #260, 260, 200
     data = np.array(nib.load(path).get_fdata())
     data = torch.tensor(data, device=device, dtype=torch.float32)
-    data = normalise(data)
+    if image: 
+        # normalize for only images, not labels/masks
+        return normalise(data)
     return data
     
-
 def normalise(img: torch.Tensor) -> torch.Tensor:
-    # img = (img - img.min())/(img.max() - img.min())
-    img = img /img.max()
-    
+    img = (img - img.min())/(img.max() - img.min())
     return (2 * img) - 1
+
+
+def get_time_points(data):
+
+    """
+    Gets data path and returns time points between each image in months
+    """
+    data = sorted(glob.glob(data))
+    splitpath = [data[i].split("/")[-1] for i in range(len(data))]
+    dates = [datetime.strptime(img.split('_')[1] + '_' + img.split('_')[2], "%Y_%m") for img in splitpath]
+    time_points = [0]+ [(dates[i+1].year - dates[i].year) * 12 + (dates[i+1].month - dates[i].month) for i in range(len(dates)-1)]
+
+    return time_points
 
 def define_coords(imgshape) -> torch.Tensor: 
     """
@@ -287,7 +299,7 @@ class SpatialTransform():
         z0 = torch.clamp(z0, 0, img.shape[2] - 1)
 
         pixel_values = img[x0, y0, z0]
-        
+       
         return pixel_values
     
     def spline(self,):
@@ -311,64 +323,100 @@ class SmoothDeformationField():
         self.gradient_computation = GradientComputation()
 
 
-    def spatial(self, field, coords):
-        
-        #using direct gradient, computing the derivates of field wrt coords
-        if self.gradient_type == "direct_gradient":
+    def spatial(self, field, coords, mask):
+        mask = mask.unsqueeze(-1)
+        #using anaytic gradient, computing the derivates of field wrt coords
+        if self.gradient_type == "analytic_gradient":
             # jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
-
             gradients = self.gradient_computation.gradient(coords, field)
             l2_norm = torch.norm(gradients, dim=-1, p=2).mean()
-
             return l2_norm
         
 
         #field is of shape [batch_size, *patch_size, ndims], use finite difference approximation
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
-            if self.loss_type == "L1":
-                dx = torch.abs(field[:, 1:, :, :, :] - field[:, :-1, :, :, :])
-                dy = torch.abs(field[:, :, 1:, :, :] - field[:, :, :-1, :, :]) 
-                dz = torch.abs(field[:, :, :, 1:, :] - field[:, :, :, :-1, :]) 
-                return (torch.mean(dx) + torch.mean(dy) + torch.mean(dz))/3
+            # field = field * mask
+            spacing = 1 #spacing mm along x, y and z
+            x = field[:, :, :, :, 0]
+            y = field[:, :, :, :, 1]
+            z = field[:, :, :, :, 2]
+
+            # compute gradients along each axis (x, y, z) for each displacement component, retuns a tuple of gradients along each axis
+            gradients_x = torch.gradient(x, dim=(1, 2, 3), spacing=1)
+            gradients_y = torch.gradient(y, dim=(1, 2, 3), spacing=1)
+            gradients_z = torch.gradient(z, dim=(1, 2, 3), spacing=1)
+
+            #sum of mean squared gradients
+            smoothness = sum((grad**2).mean() for grad in gradients_x + gradients_y + gradients_z)
+
+            return smoothness
+           
+            # du = torch.gradient(field, spacing=1, dim=(1, 2, 3))
+            # dx = du[0]
+            # dy = du[1]
+            # dz = du[2]
+            # return (dx*dx).mean() + (dy*dy).mean() + (dz*dz).mean()
+
+    def temporal(self, field_t, time_points):
+        """
+        field_t: list of fields at different time points, each field is of shape [batch_size, *patch_size, ndims]
+        time_points: list of time points, len(time_points) = len(field_t) + 1
+
+        We compute:
+            d_phi/dt = (phi_t+1 - phi_t)/delta_t
+        """
+    
+        field_t = [field.view(self.batch_size, *self.patch_size, 
+                            len(self.patch_size)) for field in field_t]        
+        field_t = [field.unsqueeze(0) for field in field_t]
+        field_t = torch.cat(field_t, dim=0) 
+
+        delta_t = time_points[1:] - time_points[:-1] #compute_difference between consecutive time points
+        # u_diff = field_t[1:] - field_t[:-1] 
+        
+        # delta_t = delta_t.view(-1, 1, 1, 1, 1) 
+        
+        # temp_grad = u_diff / delta_t 
+        temp_grad = torch.gradient(field_t, delta_t=(time_points,), dim=0)  
+        print(temp_grad.shape)
+        tempreg = (temp_grad ** 2).mean() 
+        return tempreg
+
             
-            elif self.loss_type == "L2":
-                dx = field[:, 1:, :, :, :] - field[:, :-1, :, :, :]
-                dy = field[:, :, 1:, :, :] - field[:, :, :-1, :, :]
-                dz = field[:, :, :, 1:, :] - field[:, :, :, :-1, :]
-                return (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz))/3
+
+
+    # def temporal(self, field_t, coords):
+    #     if self.gradient_type == "analytic_gradient":
             
-    def temporal(self, field_t, coords):
-        if self.gradient_type == "direct_gradient":
+    #         coords = coords.unsqueeze(0)
+    #         coords = [coords for _ in range(len(field_t))]
+    #         coords = torch.cat(coords, dim=0)
+
+
+    #         field_t = [field.unsqueeze(0) for field in field_t]
+    #         field_t = torch.cat(field_t, dim=0) 
+
+    #         gradients = self.gradient_computation.gradient(coords, field_t)
+    #         l2_norm = torch.norm(gradients, dim=-1, p=2).mean()
+
+    #         return l2_norm
+
+    #     else:
+    #         field_t = [field.view(self.batch_size, *self.patch_size, 
+    #                             len(self.patch_size)) for field in field_t]        
+    #         field_t = [field.unsqueeze(0) for field in field_t]
+    #         field_t = torch.cat(field_t, dim=0) 
+    #         if self.loss_type == "L1":
+    #             dt = torch.abs(field_t[1:, :, :, :, :, :] - field_t[:-1, :, :, :, :, :])
+    #             # dt = torch.diff(field_t, n=1, dim=0)
+    #             return torch.mean(dt)
             
-            coords = coords.unsqueeze(0)
-            coords = [coords for _ in range(len(field_t))]
-            coords = torch.cat(coords, dim=0)
+    #         elif self.loss_type == "L2":
+    #             dt = field_t[1:, :, :, :, :, :] - field_t[:-1, :, :, :, :, :]
 
-
-            field_t = [field.unsqueeze(0) for field in field_t]
-            field_t = torch.cat(field_t, dim=0) 
-
-            gradients = self.gradient_computation.gradient(coords, field_t)
-            l2_norm = torch.norm(gradients, dim=-1, p=2).mean()
-
-            return l2_norm
-
-        else:
-            field_t = [field.view(self.batch_size, *self.patch_size, 
-                                len(self.patch_size)) for field in field_t]        
-            field_t = [field.unsqueeze(0) for field in field_t]
-            field_t = torch.cat(field_t, dim=0) 
-            if self.loss_type == "L1":
-                dt = torch.abs(field_t[1:, :, :, :, :, :] - field_t[:-1, :, :, :, :, :])
-                # dt = torch.diff(field_t, n=1, dim=0)
-                return torch.mean(dt)
-            
-            elif self.loss_type == "L2":
-                dt = field_t[1:, :, :, :, :, :] - field_t[:-1, :, :, :, :, :]
-
-                # dt = torch.diff(field_t, n=2, dim=0)
-                return torch.mean(dt * dt)
+    #             # dt = torch.diff(field_t, n=2, dim=0)
+    #             return torch.mean(dt * dt)
             
 
   
@@ -409,7 +457,34 @@ class GradientComputation():
         else:
             return grad[b]
     
+class FiniteDifference():
+    def __init__(self):
+        pass
 
+    def compute(self, field):
+        """"
+        Takes as input field of shape [batch_size, *patch_size, ndims]
+        """
+        field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
+        spacing = 1 #spacing along x, y and z
+        x = field[:, :, :, :, 0]
+        y = field[:, :, :, :, 1]
+        z = field[:, :, :, :, 2]
+
+        # compute gradients along each axis (x, y, z) for each displacement component, retuns a tuple of gradients along each axis
+        gradients_x = torch.gradient(x, dim=(1, 2, 3), spacing=spacing)
+        gradients_y = torch.gradient(y, dim=(1, 2, 3), spacing=spacing)
+        gradients_z = torch.gradient(z, dim=(1, 2, 3), spacing=spacing)
+
+        #sum of mean squared gradients
+        smoothness = sum((grad**2).mean() for grad in gradients_x + gradients_y + gradients_z)
+        return smoothness
+
+        # du = torch.gradient(field, spacing)
+        # dx = du[0]
+        # dy = du[1]
+        # dz = du[2]
+        # return (dx*dx).mean() + (dy*dy).mean() + (dz*dz).mean()
 
 class PenalizeLocalVolumeChange():
     """
