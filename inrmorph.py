@@ -7,9 +7,10 @@ class InrMorph(pl.LightningModule):
     def __init__(self, *args: Any):
         super().__init__()
         (self.I0, self.It, self.I0_mask, self.It_mask, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
-         self.batch_size, self.network_type, self.similarity_metric, self.gradient_type, self.loss_type) = args
+         self.batch_size, self.network_type, self.similarity_metric, self.gradient_type, self.loss_type, self.time) = args
         self.ndims = len(self.patch_size)
 
+        self.time_features = 64
         self.in_features = self.ndims
         self.out_features = self.ndims
         self.hidden_features = 256
@@ -25,6 +26,7 @@ class InrMorph(pl.LightningModule):
         assert self.gradient_type in ["finite_difference", "analytic_gradient"], "Invalid computation type"
         assert self.network_type in ["siren", "relu", "finer"], "Invalid network type"
         self.transform = SpatialTransform()
+        self.t_mapping = self.time_mapping(self.time_features)
         self.smoothness = SmoothDeformationField(self.loss_type, self.gradient_type, self.patch_size,
                                                  self.batch_size)
 
@@ -37,14 +39,28 @@ class InrMorph(pl.LightningModule):
 
         elif self.network_type == "siren":
             
-            self.mapping = Siren(layers=[self.in_features, *[self.hidden_features for i in
-                                                             range(self.hidden_layers)], self.out_features],omega=self.omega)
+            self.mapping = Siren(layers=[self.in_features, *[self.hidden_features + (self.time_features * i) for i in
+                                                             range(self.hidden_layers)], self.out_features],
+                                 omega=self.omega, time_features=self.time_feature)
 
-
+        else:
+            self.mapping = ReLU(layers=[self.in_features, *[self.hidden_features + i * (self.time_features * 2) for
+                                                            i in range(self.num_layers)], self.out_features],
+                                time_features=self.time_features)
     def forward(self, coords):
 
-        displacement_t = self.mapping(coords)
+        displacement_t = [] #len samples
 
+        for time in self.time: 
+            t_n = time.unsqueeze(0).unsqueeze(0)
+            
+            t_n = t_n.expand(self.batch_size, coords.shape[1], 1)
+
+            t_n = self.t_mapping(t_n) #concat this with every layer.
+            phi_dims = self.mapping(input, t_n) #single layer
+
+            displacement_t.append(phi_dims)
+         
         return displacement_t
 
     def training_step(self, batch, batch_idx):
@@ -81,8 +97,13 @@ class InrMorph(pl.LightningModule):
     def test_step(self, batch):
         coords = batch
         coords = coords.unsqueeze(0)
-       
-        displacement = self.mapping(coords)
+        tm = time.unsqueeze(0).unsqueeze(0)
+
+        tm = tm.expand(batch_size, coords.shape[1], 1)
+
+        tm = self.t_mapping(tm)
+        input = torch.cat([coords, t_n], dim=-1)  
+        displacement = self.mapping(input, tm)
 
         return displacement
 
@@ -163,7 +184,14 @@ class InrMorph(pl.LightningModule):
         cc = (nominator + 1e-6) / (denominator + 1e-6)
         return -torch.mean(cc)
 
-
+    def time_embedding(self, out_features):
+        hidden_features = 10
+        mapping = nn.Sequential(
+            nn.Linear(1, hidden_features),
+            nn.LeakyReLU(0.2),
+            nn.Linear(hidden_features, out_features),
+        )
+        return mapping
 
     def visualize_mid_train(self):
         batch_size = 13520
@@ -310,11 +338,13 @@ class Siren(nn.Module):
 
         self.layers = nn.Sequential(*self.layers)
 
-    def forward(self, coords):
-
-        for layer in self.layers[:-1]:
+    def forward(self, coords, time):
+        coords = torch.sin(self.omega * self.layers[0](coords))
+        
+        for layer in self.layers[1:-1]:
+            coords = torch.cat([coords, time], dim=-1)
             coords = torch.sin(self.omega * layer(coords))
-
+        coords = torch.cat([coords, time], dim=-1)
         return self.layers[-1](coords)
 
 ################ReLU####################

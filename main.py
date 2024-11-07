@@ -11,7 +11,7 @@ def main():
                                                    npatches=npatches_val, imgshape=I0.shape), batch_size=batch_size,
                                shuffle=False, num_workers=8, drop_last=True)
     model = InrMorph(I0, It, I0_mask, It_mask, patch_size, spatial_reg, temporal_reg, batch_size, args.network_type,
-                            args.similarity_metric, args.gradient_type, args.loss_type)
+                            args.similarity_metric, args.gradient_type, args.loss_type, normalised_time_points)
 
     trainer = Trainer(fast_dev_run=False, max_epochs=250, log_every_n_steps=50, accelerator="auto", devices="auto",
                        strategy="auto", callbacks=[model_checkpoint], logger=logger, precision="32")
@@ -50,10 +50,10 @@ if __name__ == "__main__":
 
 
     I0 = images[0]  # moving #260, 260, 200
-    It = images[3]
+    It = images[1:]
 
     I0_mask = masks[0]
-    It_mask = masks[3]
+    It_mask = masks[1:]
 
     print("######################Registering across time: {} in years##################".format(args.time))
 
