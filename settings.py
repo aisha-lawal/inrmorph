@@ -20,10 +20,13 @@ import wandb
 import csv
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 import neurite as ne
+torch.set_float32_matmul_precision('medium')
 # matplotlib.use('Agg')
 # torch.manual_seed(42)
+# import torch._dynamo                                                                                                               
+# torch._dynamo.config.suppress_errors = True  
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '6'
+os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -45,7 +48,7 @@ def arg():
     parser.add_argument("--network_type", type=str,
                 dest="network_type",
                 default='siren',
-                help="relu, finer, or siren")
+                help="relu or siren or finer")
     
     parser.add_argument("--dir_path", type=str,
                 dest="dir_path",
@@ -84,7 +87,7 @@ def arg():
     
     parser.add_argument("--subjectID", type=str,
                 dest="subjectID",
-                default="ad/005_S_0814",
+                default="AD/005_S_0814",
                 help="subject to train, include patient type")
     
     parser.add_argument("--model_type", type=str,
@@ -108,7 +111,7 @@ def arg():
     parser.add_argument("--gradient_type", type=str,
                         dest="gradient_type",
                         default="finite_difference",
-                        help="state to use either \"finite_difference\" or \"direct_gradient\"")
+                        help="state to use either \"finite_difference\" or \"analytic_gradient\"")
     args = parser.parse_args()
     return args
 
@@ -125,16 +128,16 @@ def wandb_setup():
 
     early_stopping = EarlyStopping(
         monitor= "val_loss",
-        patience= 8,
+        patience= 10,
         mode= "min",
     )
     logger = WandbLogger(
-        project= "lowhighfieldreg",
+        project= "inrmorph",
         # name = args.network_type + "_" + args.logger_name,
         name =args.logger_name,
         log_model= "all",
     )
-    # logger.experiment.log_code(".")
+    logger.experiment.log_code()
 
     return model_checkpoint, early_stopping, logger
 
@@ -150,7 +153,7 @@ def save_artifacts(trainer, model_checkpoint,logger_name, logger):
     #     name=logger_name,
     #     # name=artifact_name,
     #     type="model",
-    #     description="low high field reg"
+    #     description="lowhighfieldreg"
     # )
     # artifact.add_file(model_checkpoint.best_model_path, name=artifact_name+".ckpt")
 
