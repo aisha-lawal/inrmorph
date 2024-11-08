@@ -6,7 +6,7 @@ from utils import PositionalEncoding, SpatialTransform, SmoothDeformationField
 class InrMorph(pl.LightningModule):
     def __init__(self, *args: Any):
         super().__init__()
-        (self.I0, self.It, self.I0_mask, self.It_mask, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
+        (self.I0, self.It, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
          self.batch_size, self.network_type, self.similarity_metric, self.gradient_type, self.loss_type, self.time) = args
         self.ndims = len(self.patch_size)
         self.nsamples = len(self.It)
@@ -41,7 +41,7 @@ class InrMorph(pl.LightningModule):
             
             self.mapping = Siren(layers=[self.in_features, *[self.hidden_features + (self.time_features * i) for i in
                                                              range(self.hidden_layers)], self.out_features],
-                                 omega=self.omega, time_features=self.time_feature)
+                                 omega=self.omega, time_features=self.time_features)
 
         else:
             self.mapping = ReLU(layers=[self.in_features, *[self.hidden_features + i * (self.time_features * 2) for
@@ -57,7 +57,7 @@ class InrMorph(pl.LightningModule):
             t_n = t_n.expand(self.batch_size, coords.shape[1], 1)
 
             t_n = self.t_mapping(t_n) #concat this with every layer.
-            phi_dims = self.mapping(input, t_n) #single layer
+            phi_dims = self.mapping(coords, t_n) #single layer
 
             displacement_t.append(phi_dims)
          
@@ -84,9 +84,9 @@ class InrMorph(pl.LightningModule):
         coords = coords.view(self.batch_size, np.prod(self.patch_size), self.ndims)
         coords = coords.clone().detach().requires_grad_(True)
         displacement_t = self.forward(coords)
-        warped_t, fixed_t, deformation_field_t, mask = self.compute_transform(coords, displacement_t)
+        warped_t, fixed_t, deformation_field_t  = self.compute_transform(coords, displacement_t)
        
-        ncc, smoothness, loss = self.compute_loss(warped_t, fixed_t, deformation_field_t, mask, coords)
+        ncc, smoothness, loss = self.compute_loss(warped_t, fixed_t, deformation_field_t, coords)
 
         self.log(f"{process}_ncc", ncc, on_epoch=True, sync_dist=True, on_step=False)
         self.log(f"{process}_spatial_smoothness", smoothness, on_epoch=True, sync_dist=True, on_step=False)
@@ -94,15 +94,15 @@ class InrMorph(pl.LightningModule):
 
         return loss
 
-    def test_step(self, batch):
-        coords = batch
+    def test_step(self, coords, time):
         coords = coords.unsqueeze(0)
+        batch_size = 1
         tm = time.unsqueeze(0).unsqueeze(0)
 
         tm = tm.expand(batch_size, coords.shape[1], 1)
 
         tm = self.t_mapping(tm)
-        displacement = self.mapping(input, tm)
+        displacement = self.mapping(coords, tm)
 
         return displacement
 
@@ -126,15 +126,15 @@ class InrMorph(pl.LightningModule):
             warp function at time = 0 should be the identity transform
 
         """
-        displacement_field_t = []
+        deformation_field_t = []
         warped_t = []
         fixed_t = []
-        for t, idx in enumerate(self.time):
-            displacement_field_t.append(torch.add(displacement[idx], coords)) #apply the displacement relative to the baseline coordinate (coords)
+        for idx, t in enumerate(self.time):
+            deformation_field_t.append(torch.add(displacement[idx], coords)) #apply the displacement relative to the baseline coordinate (coords)
             warped_t.append(self.transform.trilinear_interpolation(coords=deformation_field_t[idx], img=self.I0).view(self.batch_size, *self.patch_size))
             fixed_t.append(self.transform.trilinear_interpolation(coords=coords, img=self.It[idx]).view(self.batch_size, *self.patch_size)) #resampling to the baseline coordinate
 
-        return warped, fixed, deformation_field
+        return warped_t, fixed_t, deformation_field_t
 
     def compute_loss(self, warped_t, fixed_t, deformation_field_t, coords):
         """
@@ -155,11 +155,13 @@ class InrMorph(pl.LightningModule):
         total_loss = 0
         ncc = 0
         spatial_smoothness = 0
-        for idx in range(self.samples):
-            ncc += self.ncc_loss(warped_t[idx], fixed_t[idx])
-            spatial_smoothness += self.smoothness.spatial(deformation_field_t[idx], coords) * self.spatial_reg_weight
-            total_loss += (ncc + spatial_smoothness)
-
+        for idx in range(self.nsamples):
+            ncc_t = self.ncc_loss(warped_t[idx], fixed_t[idx])
+            ncc += ncc_t
+            spatial_smoothness_t = self.smoothness.spatial(deformation_field_t[idx], coords) * self.spatial_reg_weight
+            spatial_smoothness += spatial_smoothness_t
+            total_loss += (ncc_t + spatial_smoothness_t)
+            # print("index and all loss", idx, ncc_t, spatial_smoothness_t, total_loss)
         #turn off spatial smoothness at epoch 300
         # if self.current_epoch >= 250:
         #     spatial_smoothness = 1e-6
@@ -184,7 +186,7 @@ class InrMorph(pl.LightningModule):
         cc = (nominator + 1e-6) / (denominator + 1e-6)
         return -torch.mean(cc)
 
-    def time_embedding(self, out_features):
+    def time_mapping(self, out_features):
         hidden_features = 10
         mapping = nn.Sequential(
             nn.Linear(1, hidden_features),
@@ -218,7 +220,7 @@ class InrMorph(pl.LightningModule):
             del temp_moved
 
 
-    def wandb_log_images(self, It, I0, moved, mask, deformation_field_t, slice):
+    def wandb_log_images(self, It, I0, moved, deformation_field_t, slice):
         images = {
                     "It": wandb.Image(It[0][:, :, slice].cpu().detach().numpy()),
                     "I0": wandb.Image(I0[0][:, :, slice].cpu().detach().numpy()),
@@ -315,11 +317,12 @@ class Finer(nn.Module):
 
 class Siren(nn.Module):
 
-    def __init__(self, layers, omega):
+    def __init__(self, layers, omega, time_features):
 
         super(Siren, self).__init__()
         self.n_layers = len(layers) - 1
         self.omega = omega
+        self.time_features = time_features
 
         # Make the layers
         self.layers = []
@@ -330,7 +333,7 @@ class Siren(nn.Module):
                     self.layers.append(nn.Linear(layers[i], layers[i + 1]))
                     self.layers[-1].weight.uniform_(-1 / layers[i], 1 / layers[i])
                 else:
-                    self.layers.append(nn.Linear(layers[i], layers[i + 1]))
+                    self.layers.append(nn.Linear(layers[i] + self.time_features, layers[i + 1]))
                     self.layers[-1].weight.uniform_(
                         -np.sqrt(6 / layers[i]) / self.omega,
                         np.sqrt(6 / layers[i]) / self.omega,

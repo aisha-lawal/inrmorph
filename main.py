@@ -10,13 +10,13 @@ def main():
     val_generator = DataLoader(dataset=CoordsPatch(patch_size=patch_size,
                                                    npatches=npatches_val, imgshape=I0.shape), batch_size=batch_size,
                                shuffle=False, num_workers=8, drop_last=True)
-    model = InrMorph(I0, It, I0_mask, It_mask, patch_size, spatial_reg, temporal_reg, batch_size, args.network_type,
+    model = InrMorph(I0, It, patch_size, spatial_reg, temporal_reg, batch_size, args.network_type,
                             args.similarity_metric, args.gradient_type, args.loss_type, normalised_time_points)
 
-    # trainer = Trainer(fast_dev_run=False, max_epochs=250, log_every_n_steps=50, accelerator="auto", devices="auto",
-    #                    strategy="auto", callbacks=[model_checkpoint], logger=logger, precision="32")
+    trainer = Trainer(fast_dev_run=False, max_epochs=250, log_every_n_steps=50, accelerator="auto", devices="auto",
+                       strategy="auto", callbacks=[model_checkpoint], logger=logger, precision="32")
     print("######################Training##################")
-    trainer = Trainer(fast_dev_run=True, max_epochs=50, log_every_n_steps=150, accelerator="auto", devices="auto",strategy="auto", precision="32", overfit_batches=100)
+    # trainer = Trainer(fast_dev_run=True, max_epochs=50, log_every_n_steps=150, accelerator="auto", devices="auto",strategy="auto", precision="32", overfit_batches=100)
     trainer.fit(model=model, train_dataloaders=train_generator, val_dataloaders=val_generator)
 
     print(f"Allocated: {torch.cuda.memory_allocated() / (1024 * 1024)} MB")
@@ -41,14 +41,8 @@ if __name__ == "__main__":
     # time_points = get_time_points(data)
     print(len(images), len(masks))
 
-    time_points = torch.tensor(args.time)
+    time_points = torch.tensor(args.time, device=device, dtype=torch.float32)
     normalised_time_points = time_points/12
-    time_seq_spacing = [35, 15, 52]
-    observed_indx = [34, 48, 99]
-    time_seq = generate_time_sequence(normalised_time_points, time_seq_spacing)
-    time_seq = torch.tensor(time_seq, device=device, dtype=torch.float32)
-
-
     I0 = images[0]  # moving #260, 260, 200
     It = images
 

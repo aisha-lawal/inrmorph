@@ -1,4 +1,2 @@
-default
-default
 sanitycheck
-omega_first_layer_only
+default_multipletimepoints
