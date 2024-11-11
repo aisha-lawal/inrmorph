@@ -155,7 +155,7 @@ class CoordsImageTest(Dataset):
         self.coords = define_coords(self.imgshape)
         self.scale_factor = scale_factor
         
-        if self.scale_factor!=1: #if you want to test with larger resolution
+        if self.scale_factor!=1: #to test with larger resolution
             self.coords = F.interpolate(self.coords.permute(3, 2, 0, 1).unsqueeze(0), scale_factor=self.scale_factor, mode='trilinear', align_corners=True)
             self.coords = self.coords.squeeze().permute(2, 3, 1, 0)
 

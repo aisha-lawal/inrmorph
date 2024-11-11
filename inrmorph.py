@@ -122,7 +122,7 @@ class InrMorph(pl.LightningModule):
             - displacement (list of torch.tensor (*patch_size, ndims)): predicted displacement for each t in It, how  each point
             in the baseline should move to match the morphology of the followup at each point t
             - coords (torch.tensor): original coordinate used for warped
-            - we warp the follow up image to the baseline coordinate for each t, to have a uniform coordinate system (baseline)
+            - we warp the follow up image to the base line coordinate for each t, to have a uniform coordinate system (baseline)
             warp function at time = 0 should be the identity transform
 
         """
@@ -132,9 +132,10 @@ class InrMorph(pl.LightningModule):
         for idx, t in enumerate(self.time):
             deformation_field_t.append(torch.add(displacement[idx], coords)) #apply the displacement relative to the baseline coordinate (coords)
             if idx!=0:
-                warped_t.append(self.transform.trilinear_interpolation(coords=deformation_field_t[idx], img=self.I0).view(self.batch_size, *self.patch_size))
-                fixed_t.append(self.transform.trilinear_interpolation(coords=coords, img=self.It[idx]).view(self.batch_size, *self.patch_size)) #resampling to the baseline coordinate
-
+                # warped_t.append(self.transform.trilinear_interpolation(coords=deformation_field_t[idx], img=self.I0).view(self.batch_size, *self.patch_size))
+                # fixed_t.append(self.transform.trilinear_interpolation(coords=coords, img=self.It[idx]).view(self.batch_size, *self.patch_size)) #resampling to the baseline coordinate
+                warped_t.append(self.transform.trilinear_interpolation(coords=deformation_field_t[idx], img=self.It[idx]).view(self.batch_size, *self.patch_size))
+                fixed_t.append(self.transform.trilinear_interpolation(coords=coords, img=self.I0).view(self.batch_size, *self.patch_size)) #resampling to the baseline coordinate
         return warped_t, fixed_t, deformation_field_t
 
     def compute_loss(self, warped_t, fixed_t, deformation_field_t, coords):
@@ -154,29 +155,24 @@ class InrMorph(pl.LightningModule):
 
         """
         total_loss = 0
-        ncc = 0
+        loss_at_t = 0
         spatial_smoothness = 0
-        for idx, _ in range(self.nsamples):
+        for idx, _ in enumerate(self.time):
             if idx == 0:
                 dx = deformation_field_t[idx][:, :, 0] - coords[:, :, 0]  # shape [batch_size, flattenedpatch, ndims]
                 dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
                 dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
 
-                loss_at_0 = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
-            ncc_t = self.ncc_loss(warped_t[idx], fixed_t[idx])
-            ncc += ncc_t
+                loss_at_t = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
+            else:
+                ncc = self.ncc_loss(warped_t[idx-1], fixed_t[idx-1])
+                loss_at_t += ncc
             spatial_smoothness_t = self.smoothness.spatial(deformation_field_t[idx], coords) * self.spatial_reg_weight
             spatial_smoothness += spatial_smoothness_t
-            total_loss += (ncc_t + spatial_smoothness_t)
-            # print("index and all loss", idx, ncc_t, spatial_smoothness_t, total_loss)
-        #turn off spatial smoothness at epoch 300
-        # if self.current_epoch >= 250:
-        #     spatial_smoothness = 1e-6
 
-       
-
-        print("NCC: {}, Smoothness: {}, Total loss {}".format(ncc, spatial_smoothness, total_loss))
-        return ncc, spatial_smoothness, total_loss
+            total_loss += (loss_at_t + spatial_smoothness_t)
+        print("NCC: {}, Smoothness: {}, Total loss {}".format(loss_at_t, spatial_smoothness, total_loss))
+        return loss_at_t, spatial_smoothness, total_loss
 
     def mse_loss(self, warped_pixels, fixed_pixels):
         return torch.mean((fixed_pixels - warped_pixels) ** 2)

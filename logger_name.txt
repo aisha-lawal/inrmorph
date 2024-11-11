@@ -1,2 +1,4 @@
 sanitycheck
 default_multipletimepoints
+default_multipletimepoints_loss_at_0
+default_multipletimepoints_loss_at_0_baselinereference
