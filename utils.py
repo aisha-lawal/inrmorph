@@ -323,7 +323,7 @@ class SmoothDeformationField():
         self.gradient_computation = GradientComputation()
 
 
-    def spatial(self, field, coords):
+    def spatial(self, field, coords, mask):
         #using anaytic gradient, computing the derivates of field wrt coords
         if self.gradient_type == "analytic_gradient":
             # jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
