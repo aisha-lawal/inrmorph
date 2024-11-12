@@ -86,7 +86,7 @@ class InrMorph(pl.LightningModule):
         displacement_t = self.forward(coords)
         warped_t, fixed_t, deformation_field_t  = self.compute_transform(coords, displacement_t)
        
-        ncc, smoothness, loss = self.compute_loss(warped_t, fixed_t, deformation_field_t, coords)
+        ncc, smoothness, loss = self.compute_loss(warped_t, fixed, deformation_field_t, coords)
 
         self.log(f"{process}_ncc", ncc, on_epoch=True, sync_dist=True, on_step=False)
         self.log(f"{process}_spatial_smoothness", smoothness, on_epoch=True, sync_dist=True, on_step=False)
@@ -128,17 +128,16 @@ class InrMorph(pl.LightningModule):
         """
         deformation_field_t = []
         warped_t = []
+        # fixed = self.transform.trilinear_interpolation(coords=coords, img=self.I0).view(self.batch_size, *self.patch_size) #for arrange as patch
         fixed_t = []
         for idx, t in enumerate(self.time):
             deformation_field_t.append(torch.add(displacement[idx], coords)) #apply the displacement relative to the baseline coordinate (coords)
             if idx!=0:
-                # warped_t.append(self.transform.trilinear_interpolation(coords=deformation_field_t[idx], img=self.I0).view(self.batch_size, *self.patch_size))
-                # fixed_t.append(self.transform.trilinear_interpolation(coords=coords, img=self.It[idx]).view(self.batch_size, *self.patch_size)) #resampling to the baseline coordinate
                 warped_t.append(self.transform.trilinear_interpolation(coords=deformation_field_t[idx], img=self.It[idx]).view(self.batch_size, *self.patch_size))
-                fixed_t.append(self.transform.trilinear_interpolation(coords=coords, img=self.I0).view(self.batch_size, *self.patch_size)) #resampling to the baseline coordinate
+                fixed_t.append(self.transform.trilinear_interpolation(coords=coords, img=self.I0).view(self.batch_size, *self.patch_size))
         return warped_t, fixed_t, deformation_field_t
 
-    def compute_loss(self, warped_t, fixed_t, deformation_field_t, coords):
+    def compute_loss(self, warped_t, fixed, deformation_field_t, coords):
         """
         Args: 
             warped_t (list of torch.Tensor): contains warped images at time t of shape
