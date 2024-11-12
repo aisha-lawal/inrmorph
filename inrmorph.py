@@ -6,7 +6,7 @@ from utils import PositionalEncoding, SpatialTransform, SmoothDeformationField
 class InrMorph(pl.LightningModule):
     def __init__(self, *args: Any):
         super().__init__()
-        (self.I0, self.It, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
+        (self.I0, self.It, self.mask, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
          self.batch_size, self.network_type, self.similarity_metric, self.gradient_type, self.loss_type, self.time) = args
         self.ndims = len(self.patch_size)
         self.nsamples = len(self.It)
