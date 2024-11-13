@@ -323,8 +323,7 @@ class SmoothDeformationField():
         self.gradient_computation = GradientComputation()
 
 
-    def spatial(self, field, coords, mask):
-        mask = mask.unsqueeze(-1)
+    def spatial(self, field, coords):
         #using anaytic gradient, computing the derivates of field wrt coords
         if self.gradient_type == "analytic_gradient":
             # jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
@@ -336,7 +335,6 @@ class SmoothDeformationField():
         #field is of shape [batch_size, *patch_size, ndims], use finite difference approximation
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
-            field = field * mask
             spacing = 1 #spacing mm along x, y and z
             x = field[:, :, :, :, 0]
             y = field[:, :, :, :, 1]
