@@ -36,15 +36,13 @@ def normalise(img: torch.Tensor) -> torch.Tensor:
 
 
 def get_time_points(data):
-
     """
-    Gets data path and returns time points between each image in months
+    Gets data path and returns time points between each image and the first image in months.
     """
-    data = sorted(glob.glob(data))
     splitpath = [data[i].split("/")[-1] for i in range(len(data))]
     dates = [datetime.strptime(img.split('_')[1] + '_' + img.split('_')[2], "%Y_%m") for img in splitpath]
-    time_points = [0]+ [(dates[i+1].year - dates[i].year) * 12 + (dates[i+1].month - dates[i].month) for i in range(len(dates)-1)]
-
+    first_date = dates[0]
+    time_points = [0] + [(date.year - first_date.year) * 12 + (date.month - first_date.month) for date in dates[1:]]
     return time_points
 
 def define_coords(imgshape) -> torch.Tensor: 
