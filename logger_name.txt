@@ -3,3 +3,5 @@ default_multipletimepoints
 default_multipletimepoints_loss_at_0
 default_multipletimepoints_loss_at_0_baselinereference
 default_control
+default_omega50
+default_omega_15
