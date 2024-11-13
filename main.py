@@ -37,6 +37,7 @@ if __name__ == "__main__":
     """
     Retrieve time points
     """
+    print("image shape: ", images[0].shape)
 
     # time_points = get_time_points(data)
     print(len(images), len(masks))
