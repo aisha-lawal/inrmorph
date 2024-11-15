@@ -15,8 +15,8 @@ class InrMorph(pl.LightningModule):
         self.out_features = self.ndims
         self.hidden_features = 256
         self.hidden_layers = 5
-        # self.omega = 30
-        self.omega = 15
+        self.omega = 30
+        # self.omega = 50
 
         self.first_omega = 30
         self.hidden_omega = 30
