@@ -1,12 +1,12 @@
 from settings import *
-from utils import PositionalEncoding, SpatialTransform, SmoothDeformationField
+from utils import PositionalEncoding, SpatialTransform, SmoothDeformationField, MonotonicConstraint
 
 
 ##############################MAIN REGISTRATION CLASS#######################
 class InrMorph(pl.LightningModule):
     def __init__(self, *args: Any):
         super().__init__()
-        (self.I0, self.It, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
+        (self.I0, self.It, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight, self.monotonicity_reg_weight,
          self.batch_size, self.network_type, self.similarity_metric, self.gradient_type, self.loss_type, self.time) = args
         self.ndims = len(self.patch_size)
         self.nsamples = len(self.It)
@@ -16,6 +16,7 @@ class InrMorph(pl.LightningModule):
         self.hidden_features = 256
         self.hidden_layers = 5
         self.omega = 30
+        self.time = self.time.clone().detach().requires_grad_(True)
         # self.omega = 50
 
         self.first_omega = 30
@@ -32,6 +33,7 @@ class InrMorph(pl.LightningModule):
         self.smoothness = SmoothDeformationField(self.loss_type, self.gradient_type, self.patch_size,
                                                  self.batch_size)
 
+        self.monotonic_constraint = MonotonicConstraint(self.patch_size, self.batch_size)
 
         if self.network_type == "finer":
             
@@ -172,6 +174,8 @@ class InrMorph(pl.LightningModule):
             spatial_smoothness += spatial_smoothness_t
             total_loss += (loss_at_t + spatial_smoothness_t)
 
+        #field_t
+        mono_loss = self.monotonic_constraint.forward(deformation_field_t, coords, self.time) * self.monotonicity_reg_weight
         print("NCC: {}, Smoothness: {}, Total loss {}".format(loss_at_t, spatial_smoothness, total_loss))
         return loss_at_t, spatial_smoothness, total_loss
 

@@ -304,7 +304,7 @@ class SpatialTransform():
         pass
 
 
-#####################SMOOTH FIELD###############
+#####################Regularization###############
 class SmoothDeformationField():
     """
     Encourages smoothness, we compute the graident using finite difference and take the L2/L1 , penalize more using L2
@@ -324,10 +324,9 @@ class SmoothDeformationField():
     def spatial(self, field, coords):
         #using anaytic gradient, computing the derivates of field wrt coords
         if self.gradient_type == "analytic_gradient":
-            # jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
-            gradients = self.gradient_computation.gradient(coords, field)
-            l2_norm = torch.norm(gradients, dim=-1, p=2).mean()
-            return l2_norm
+            jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
+            l2_norm = torch.norm(jacobian_matrix, dim=-1, p=2).mean()
+            return l2_norm, jacobian_matrix #stack jac in inrmorph and use for d|J|/dt
         
 
         #field is of shape [batch_size, *patch_size, ndims], use finite difference approximation
@@ -379,44 +378,45 @@ class SmoothDeformationField():
         tempreg = (temp_grad ** 2).mean() 
         return tempreg
 
-            
 
 
-    # def temporal(self, field_t, coords):
-    #     if self.gradient_type == "analytic_gradient":
-            
-    #         coords = coords.unsqueeze(0)
-    #         coords = [coords for _ in range(len(field_t))]
-    #         coords = torch.cat(coords, dim=0)
+class MonotonicConstraint():
+    """
+    Compute the d|J|/dt and penalize non-monotonicity
+    
+    """
+
+    def __init__(self, patch_size, batch_size):
+        self.patch_size = patch_size
+        self.batch_size = batch_size
+        self.gradient_computation = GradientComputation()
 
 
-    #         field_t = [field.unsqueeze(0) for field in field_t]
-    #         field_t = torch.cat(field_t, dim=0) 
+    def forward(self, deformation_field_t, coords, time):
+        jac = [self.gradient_computation.compute_matrix(coords, field) for field in deformation_field_t]
+        jacobian_determinants = [torch.det(jac) for jac in jac] #compute determinant of jacobian matrix
+        jacobian_determinants = torch.stack(jacobian_determinants, dim=0)
 
-    #         gradients = self.gradient_computation.gradient(coords, field_t)
-    #         l2_norm = torch.norm(gradients, dim=-1, p=2).mean()
 
-    #         return l2_norm
+        ##begin here
+        dJ_dt = torch.autograd.grad(jacobian_determinants, time, 
+                grad_outputs=torch.ones_like(jacobian_determinants),  
+                create_graph=True)[0]
+        print("in monotonic", dJ_dt.shape, dJ_dt)
+        exit()
+        # penalty = []
+        # for i in range(1, len(jac_t)):
+        #     penalty.append(max(0, -jac_t[i] * jac_t[i-1]))
+        # return penalty
+        loss = 0
+        for i in range(1, len(jac_t)):
+            sign_change = torch.sign(derivatives[t + 1]) != torch.sign(derivatives[t])
+            loss += sign_change.float().mean() 
+        return loss
 
-    #     else:
-    #         field_t = [field.view(self.batch_size, *self.patch_size, 
-    #                             len(self.patch_size)) for field in field_t]        
-    #         field_t = [field.unsqueeze(0) for field in field_t]
-    #         field_t = torch.cat(field_t, dim=0) 
-    #         if self.loss_type == "L1":
-    #             dt = torch.abs(field_t[1:, :, :, :, :, :] - field_t[:-1, :, :, :, :, :])
-    #             # dt = torch.diff(field_t, n=1, dim=0)
-    #             return torch.mean(dt)
-            
-    #         elif self.loss_type == "L2":
-    #             dt = field_t[1:, :, :, :, :, :] - field_t[:-1, :, :, :, :, :]
 
-    #             # dt = torch.diff(field_t, n=2, dim=0)
-    #             return torch.mean(dt * dt)
-            
 
-  
-
+    
 class GradientComputation():
     def __init__(self):
         pass
@@ -438,6 +438,8 @@ class GradientComputation():
             for i in range(dim):
                 
                 matrix[b, :, i, :] = self.gradient(coords, field[b, :,  i], b) # for partial derivatives, wrt x,yz
+                #add identity matrix
+                # matrix[b, :, i, i] += torch.ones_like(matrix[b, :, i, i])
 
         return matrix   
     
@@ -445,7 +447,6 @@ class GradientComputation():
         # print("in grad", input_coords.shape, output.shape, b, input_coords.requires_grad, output.requires_grad)
 
         grad_outputs = torch.ones_like(output)
-
         grad= torch.autograd.grad(output, [input_coords], grad_outputs=grad_outputs, create_graph=True)[0]
 
         if b == None:
