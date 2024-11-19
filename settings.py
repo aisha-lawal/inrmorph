@@ -137,7 +137,7 @@ def wandb_setup():
         name =args.logger_name,
         log_model= "all",
     )
-    # logger.experiment.log_code()
+    logger.experiment.log_code()
 
     return model_checkpoint, early_stopping, logger
 
