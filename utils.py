@@ -322,16 +322,16 @@ class SmoothDeformationField():
 
     def spatial(self, field, coords):
         if self.gradient_type == "analytic_gradient":
-            scaler = torch.cuda.amp.GradScaler()
-            with torch.cuda.amp.autocast():
-                jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
+            # scaler = torch.cuda.amp.GradScaler()
+            # with torch.cuda.amp.autocast(cuda):
+            jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
 
 
             # jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
             #can also compute frobenius norm of jacobian matrix i.e L2 norm in matrix form. result should be same in this case
             l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2)  
             smoothness_loss = l2.mean()  #scalar
-
+            return smoothness_loss
 
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
@@ -346,7 +346,7 @@ class SmoothDeformationField():
 
             smoothness_loss = sum((grad**2).mean() for grad in gradients_x + gradients_y + gradients_z)
 
-        return smoothness_loss
+            return smoothness_loss
     
 class GradientComputation():
     def __init__(self):
@@ -433,16 +433,9 @@ class MonotonicConstraint():
         dJ_dt = torch.autograd.grad(jacobian_determinants, time, 
                 grad_outputs=torch.ones_like(jacobian_determinants),  
                 create_graph=True)[0]
-        print("in monotonic", dJ_dt.shape, dJ_dt)
+        print("in monotonic", dJ_dt.shape)
         exit()
-        # penalty = []
-        # for i in range(1, len(jac_t)):
-        #     penalty.append(max(0, -jac_t[i] * jac_t[i-1]))
-        # return penalty
-        loss = 0
-        for i in range(1, len(jac_t)):
-            sign_change = torch.sign(derivatives[t + 1]) != torch.sign(derivatives[t])
-            loss += sign_change.float().mean() 
+      
         return loss
 
 
