@@ -430,7 +430,21 @@ class MonotonicConstraint():
         #         grad_outputs=torch.ones_like(jacobian_determinants),  
         #         create_graph=True)[0]
 
-      
+
+
+        # dj_derivative = torch.zeros_like(dj)
+
+        # for t in range(len(time)):
+        #     grad_outputs = torch.zeros_like(dj)
+        #     grad_outputs[t] = 1  
+        #     voxelwise_derivative[t] = torch.autograd.grad(
+        #         dj,  
+        #         time, 
+        #         grad_outputs=grad_outputs,
+        #         retain_graph=True,  
+        #         create_graph=True 
+        #     )[0][t]
+            
         jac_det_derivatives = []
 
         # Compute the gradient of the Jacobian determinants w.r.t. time for all time points
