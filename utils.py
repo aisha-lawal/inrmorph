@@ -379,42 +379,6 @@ class SmoothDeformationField():
         tempreg = (temp_grad ** 2).mean() 
         return tempreg
 
-            
-
-
-    # def temporal(self, field_t, coords):
-    #     if self.gradient_type == "analytic_gradient":
-            
-    #         coords = coords.unsqueeze(0)
-    #         coords = [coords for _ in range(len(field_t))]
-    #         coords = torch.cat(coords, dim=0)
-
-
-    #         field_t = [field.unsqueeze(0) for field in field_t]
-    #         field_t = torch.cat(field_t, dim=0) 
-
-    #         gradients = self.gradient_computation.gradient(coords, field_t)
-    #         l2_norm = torch.norm(gradients, dim=-1, p=2).mean()
-
-    #         return l2_norm
-
-    #     else:
-    #         field_t = [field.view(self.batch_size, *self.patch_size, 
-    #                             len(self.patch_size)) for field in field_t]        
-    #         field_t = [field.unsqueeze(0) for field in field_t]
-    #         field_t = torch.cat(field_t, dim=0) 
-    #         if self.loss_type == "L1":
-    #             dt = torch.abs(field_t[1:, :, :, :, :, :] - field_t[:-1, :, :, :, :, :])
-    #             # dt = torch.diff(field_t, n=1, dim=0)
-    #             return torch.mean(dt)
-            
-    #         elif self.loss_type == "L2":
-    #             dt = field_t[1:, :, :, :, :, :] - field_t[:-1, :, :, :, :, :]
-
-    #             # dt = torch.diff(field_t, n=2, dim=0)
-    #             return torch.mean(dt * dt)
-            
-
   
 
 class GradientComputation():
