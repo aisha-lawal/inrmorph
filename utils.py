@@ -445,6 +445,8 @@ class MonotonicConstraint():
             # Append the gradient
             jac_det_derivatives.append(grad)
 
+        
+
         # Stack all derivatives back together
         jac_det_derivatives = torch.stack(jac_det_derivatives, dim=0)  # Shape: (4, 32, 1728)
 
