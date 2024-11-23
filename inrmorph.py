@@ -174,14 +174,14 @@ class InrMorph(pl.LightningModule):
             #     spatial_smoothness_t = self.smoothness.spatial(deformation_field_t[idx], coords) * self.spatial_reg_weight
             # else:
             #     spatial_smoothness_t = 0
-            spatial_smoothness_t = self.smoothness.spatial(deformation_field_t[idx], coords) * self.spatial_reg_weight
-            # jac_det[idx] = jacobian_determinant
-            exit()
+            spatial_smoothness_t, jacobian_determinant = self.smoothness.spatial(deformation_field_t[idx], coords) 
+            spatial_smoothness_t = spatial_smoothness_t * self.spatial_reg_weight
+            jac_det[idx] = jacobian_determinant
             spatial_smoothness += spatial_smoothness_t
             total_loss += (loss_at_t + spatial_smoothness_t)
 
         #field_t
-        mono_loss = self.monotonic_constraint.forward(jac_det, coords, self.time) * self.monotonicity_reg_weight
+        mono_loss = self.monotonic_constraint.forward(jac_det, self.time) * self.monotonicity_reg_weight
         print("NCC: {}, Smoothness: {}, Total loss {}".format(loss_at_t, spatial_smoothness, total_loss))
         return loss_at_t, spatial_smoothness, total_loss
 

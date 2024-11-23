@@ -331,7 +331,7 @@ class SmoothDeformationField():
             #can also compute frobenius norm of jacobian matrix i.e L2 norm in matrix form. result should be same in this case
             l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2)  
             smoothness_loss = l2.mean()  #scalar
-            return smoothness_loss
+            return smoothness_loss, torch.det(jacobian_matrix)
 
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
@@ -423,19 +423,33 @@ class MonotonicConstraint():
         self.gradient_computation = GradientComputation()
 
 
-    def forward(self, deformation_field_t, coords, time):
-        jac = [self.gradient_computation.compute_matrix(coords, field) for field in deformation_field_t]
-        jacobian_determinants = [torch.det(jac) for jac in jac] #compute determinant of jacobian matrix
-        jacobian_determinants = torch.stack(jacobian_determinants, dim=0)
+    def forward(self, jacobian_determinants, time):
+        
+        print("jacobian_determinants", jacobian_determinants.shape)
+        # dJ_dt = torch.autograd.grad(jacobian_determinants, time, 
+        #         grad_outputs=torch.ones_like(jacobian_determinants),  
+        #         create_graph=True)[0]
 
-
-        ##begin here
-        dJ_dt = torch.autograd.grad(jacobian_determinants, time, 
-                grad_outputs=torch.ones_like(jacobian_determinants),  
-                create_graph=True)[0]
-        print("in monotonic", dJ_dt.shape)
-        exit()
       
+        jac_det_derivatives = []
+
+        # Compute the gradient of the Jacobian determinants w.r.t. time for all time points
+        for t_idx in range(len(time)):
+            grad = torch.autograd.grad(
+                outputs=jacobian_determinants[t_idx],  # Shape: (32, 1728)
+                inputs=time,
+                grad_outputs=torch.ones_like(jacobian_determinants[t_idx]),  # Shape: (32, 1728)
+                create_graph=True
+            )[0]  # Shape: ()
+            
+            # Append the gradient
+            jac_det_derivatives.append(grad)
+
+        # Stack all derivatives back together
+        jac_det_derivatives = torch.stack(jac_det_derivatives, dim=0)  # Shape: (4, 32, 1728)
+
+        print("Shape of Jacobian determinant derivatives:", jac_det_derivatives)  # Expected: (4, 32, 1728)
+        exit()
         return loss
 
 

@@ -56,7 +56,7 @@ if __name__ == "__main__":
 
     npatches_train = 2000
     npatches_val = 1000
-    batch_size = 32
+    batch_size = 8
     spatial_reg = 0.01
     monotonicity_reg = 1.0
     temporal_reg = 1e+6
