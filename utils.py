@@ -377,7 +377,6 @@ class GradientComputation():
 
             #store the computed gradients in the jac_matrix
             matrix[..., d] = grad
-
         return matrix
 
 
@@ -417,56 +416,28 @@ class MonotonicConstraint():
     
     """
 
-    def __init__(self, patch_size, batch_size):
+    def __init__(self, patch_size, batch_size, time):
         self.patch_size = patch_size
         self.batch_size = batch_size
-        self.gradient_computation = GradientComputation()
+        self.time = time
 
 
-    def forward(self, jacobian_determinants, time):
-        
-        print("jacobian_determinants", jacobian_determinants.shape)
-        # dJ_dt = torch.autograd.grad(jacobian_determinants, time, 
-        #         grad_outputs=torch.ones_like(jacobian_determinants),  
-        #         create_graph=True)[0]
-
-
-
-        # dj_derivative = torch.zeros_like(dj)
-
-        # for t in range(len(time)):
-        #     grad_outputs = torch.zeros_like(dj)
-        #     grad_outputs[t] = 1  
-        #     voxelwise_derivative[t] = torch.autograd.grad(
-        #         dj,  
-        #         time, 
-        #         grad_outputs=grad_outputs,
-        #         retain_graph=True,  
-        #         create_graph=True 
-        #     )[0][t]
-            
-        jac_det_derivatives = []
-
-        # Compute the gradient of the Jacobian determinants w.r.t. time for all time points
-        for t_idx in range(len(time)):
-            grad = torch.autograd.grad(
-                outputs=jacobian_determinants[t_idx],  # Shape: (32, 1728)
-                inputs=time,
-                grad_outputs=torch.ones_like(jacobian_determinants[t_idx]),  # Shape: (32, 1728)
-                create_graph=True
-            )[0]  # Shape: ()
-            
-            # Append the gradient
-            jac_det_derivatives.append(grad)
-
-        
-
-        # Stack all derivatives back together
-        jac_det_derivatives = torch.stack(jac_det_derivatives, dim=0)  # Shape: (4, 32, 1728)
-
-        print("Shape of Jacobian determinant derivatives:", jac_det_derivatives)  # Expected: (4, 32, 1728)
-        exit()
-        return loss
+    def forward(self, jacobian_determinants):
+        jacobian_determinants = jacobian_determinants.view(len(self.time.unique()), self.batch_size, *self.patch_size)
+        voxelwise_derivatives = torch.autograd.grad(
+            outputs=jacobian_determinants,
+            inputs=self.time,
+            grad_outputs=torch.ones_like(jacobian_determinants),
+            create_graph=True,
+        )[0]
+        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/10000
+       
+        print("monotonicity loss", mono_loss)
+        ## using finite difference, check this later because of batchsize dimension 
+        # dj = jacobian_determinants[1:] - jacobian_determinants[:-1]
+        # dt = self.time[1:] - self.time[:-1]
+        # voxelwise_derivatives = dj / dt
+        return mono_loss
 
 
 

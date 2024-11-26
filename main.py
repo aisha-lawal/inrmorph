@@ -13,10 +13,10 @@ def main():
     model = InrMorph(I0, It, patch_size, spatial_reg, temporal_reg, monotonicity_reg, batch_size, args.network_type,
                             args.similarity_metric, args.gradient_type, args.loss_type, normalised_time_points)
 
-    # trainer = Trainer(fast_dev_run=False, max_epochs=250, log_every_n_steps=50, accelerator="auto", devices="auto",
-    #                    strategy="auto", callbacks=[model_checkpoint], logger=logger, precision="32")
+    trainer = Trainer(fast_dev_run=False, max_epochs=250, log_every_n_steps=50, accelerator="auto", devices="auto",
+                       strategy="auto", callbacks=[model_checkpoint], logger=logger, precision="32")
     print("######################Training##################")
-    trainer = Trainer(fast_dev_run=True, max_epochs=50, log_every_n_steps=150, accelerator="auto", devices="auto",strategy="auto", precision="32", overfit_batches=100)
+    # trainer = Trainer(fast_dev_run=True, max_epochs=50, log_every_n_steps=150, accelerator="auto", devices="auto",strategy="auto", precision="32", overfit_batches=100)
     trainer.fit(model=model, train_dataloaders=train_generator, val_dataloaders=val_generator)
 
     print(f"Allocated: {torch.cuda.memory_allocated() / (1024 * 1024)} MB")
@@ -56,8 +56,8 @@ if __name__ == "__main__":
 
     npatches_train = 2000
     npatches_val = 1000
-    batch_size = 8
+    batch_size = 12
     spatial_reg = 0.01
-    monotonicity_reg = 1.0
+    monotonicity_reg = 0.1
     temporal_reg = 1e+6
     main()
