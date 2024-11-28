@@ -10,3 +10,4 @@ default_analytic_gradient_computation
 default_monotonicloss_1.0
 default_monotonicloss_0.1
 default_monotonicloss_0.01_epoch70
+default_monotonicloss_0.25_epsilon1e-4

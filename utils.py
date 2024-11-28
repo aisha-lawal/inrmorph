@@ -419,6 +419,7 @@ class MonotonicConstraint():
         self.patch_size = patch_size
         self.batch_size = batch_size
         self.time = time
+        self.epsilon = 1e-4
 
 
     def forward(self, jacobian_determinants):
@@ -429,8 +430,9 @@ class MonotonicConstraint():
             grad_outputs=torch.ones_like(jacobian_determinants),
             create_graph=True,
         )[0]
-        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/10000
-       
+        mono_loss = torch.min(torch.relu(voxelwise_derivatives - self.epsilon).sum(), torch.relu(-voxelwise_derivatives - self.epsilon).sum())/10000
+        # mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/10000
+
         ## using finite difference, check this later because of batchsize dimension 
         # dj = jacobian_determinants[1:] - jacobian_determinants[:-1]
         # dt = self.time[1:] - self.time[:-1]

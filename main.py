@@ -58,6 +58,6 @@ if __name__ == "__main__":
     npatches_val = 1000
     batch_size = 12
     spatial_reg = 0.01
-    monotonicity_reg = 0.01
+    monotonicity_reg = 0.25
     temporal_reg = 1e+6
     main()

@@ -18,7 +18,6 @@ class InrMorph(pl.LightningModule):
         self.omega = 30
         # self.time = self.time.clone().detach().requires_grad_(True)
         self.time = self.time.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand(-1, self.batch_size,  *self.patch_size).clone().detach().requires_grad_(True)
-        print("Time shape: ", self.time.shape)
         # self.omega = 50
 
         self.first_omega = 30
@@ -103,7 +102,6 @@ class InrMorph(pl.LightningModule):
         coords = coords.unsqueeze(0)
         batch_size = 1
         tm = time.unsqueeze(0).unsqueeze(0)
-
         tm = tm.expand(batch_size, coords.shape[1], 1)
 
         tm = self.t_mapping(tm)
@@ -181,10 +179,10 @@ class InrMorph(pl.LightningModule):
             spatial_smoothness += spatial_smoothness_t
             total_loss += (loss_at_t + spatial_smoothness_t)
 
-        if self.current_epoch >= 70:
-            mono_loss = 0.0
-        else:
-            mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
+        # if self.current_epoch >= 70:
+        #     mono_loss = 0.0
+        # else:
+        mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
         total_loss += mono_loss
         print("NCC: {}, Smoothness: {}, Total loss: {}, Mono loss: {}".format(loss_at_t, spatial_smoothness, total_loss, mono_loss))
         return loss_at_t, spatial_smoothness, total_loss, mono_loss
