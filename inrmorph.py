@@ -1,12 +1,12 @@
 from settings import *
-from utils import PositionalEncoding, SpatialTransform, SmoothDeformationField
+from utils import PositionalEncoding, SpatialTransform, SmoothDeformationField, MonotonicConstraint
 
 
 ##############################MAIN REGISTRATION CLASS#######################
 class InrMorph(pl.LightningModule):
     def __init__(self, *args: Any):
         super().__init__()
-        (self.I0, self.It, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
+        (self.I0, self.It, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight, self.monotonicity_reg_weight,
          self.batch_size, self.network_type, self.similarity_metric, self.gradient_type, self.loss_type, self.time) = args
         self.ndims = len(self.patch_size)
         self.nsamples = len(self.It)
@@ -16,6 +16,9 @@ class InrMorph(pl.LightningModule):
         self.hidden_features = 256
         self.hidden_layers = 5
         self.omega = 30
+        # self.time = self.time.clone().detach().requires_grad_(True)
+        self.time = self.time.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand(-1, self.batch_size,  *self.patch_size).clone().detach().requires_grad_(True)
+        print("Time shape: ", self.time.shape)
         # self.omega = 50
 
         self.first_omega = 30
@@ -32,6 +35,7 @@ class InrMorph(pl.LightningModule):
         self.smoothness = SmoothDeformationField(self.loss_type, self.gradient_type, self.patch_size,
                                                  self.batch_size)
 
+        self.monotonic_constraint = MonotonicConstraint(self.patch_size, self.batch_size, self.time)
 
         if self.network_type == "finer":
             
@@ -53,10 +57,8 @@ class InrMorph(pl.LightningModule):
 
         displacement_t = [] #len samples
 
-        for time in self.time: 
-            t_n = time.unsqueeze(0).unsqueeze(0)
-            
-            t_n = t_n.expand(self.batch_size, coords.shape[1], 1)
+        for time in self.time: #remains as self.time 
+            t_n = time.view(self.batch_size, coords.shape[1], 1)
 
             t_n = self.t_mapping(t_n) #concat this with every layer.
             phi_dims = self.mapping(coords, t_n) #single layer
@@ -88,10 +90,11 @@ class InrMorph(pl.LightningModule):
         displacement_t = self.forward(coords)
         warped_t, fixed, deformation_field_t  = self.compute_transform(coords, displacement_t)
        
-        ncc, smoothness, loss = self.compute_loss(warped_t, fixed, deformation_field_t, coords)
+        ncc, smoothness, loss, mono_loss = self.compute_loss(warped_t, fixed, deformation_field_t, coords)
 
         self.log(f"{process}_ncc", ncc, on_epoch=True, sync_dist=True, on_step=False)
         self.log(f"{process}_spatial_smoothness", smoothness, on_epoch=True, sync_dist=True, on_step=False)
+        self.log(f"{process}_mono_loss", mono_loss, on_epoch=True, sync_dist=True, on_step=False)
         self.log(f"{process}_loss", loss, on_epoch=True, sync_dist=True, on_step=False)
 
         return loss
@@ -132,7 +135,7 @@ class InrMorph(pl.LightningModule):
         warped_t = []
         fixed = self.transform.trilinear_interpolation(coords=coords, img=self.I0).view(self.batch_size, *self.patch_size) #for arrange as patch
 
-        for idx, t in enumerate(self.time):
+        for idx, t in enumerate(self.time.unique()):
             deformation_field_t.append(torch.add(displacement[idx], coords)) #apply the displacement relative to the baseline coordinate (coords)
             if idx!=0:
                 warped_t.append(self.transform.trilinear_interpolation(coords=deformation_field_t[idx], img=self.It[idx]).view(self.batch_size, *self.patch_size))
@@ -157,7 +160,8 @@ class InrMorph(pl.LightningModule):
         total_loss = 0
         loss_at_t = 0
         spatial_smoothness = 0
-        for idx, _ in enumerate(self.time):
+        jac_det = torch.zeros(len(self.time.unique()), self.batch_size, np.prod(self.patch_size)).to(device)
+        for idx, _ in enumerate(self.time.unique()):
             if idx == 0:
                 dx = deformation_field_t[idx][:, :, 0] - coords[:, :, 0]  # shape [batch_size, flattenedpatch, ndims]
                 dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
@@ -167,13 +171,23 @@ class InrMorph(pl.LightningModule):
             else:
                 ncc = self.ncc_loss(warped_t[idx-1], fixed)
                 loss_at_t += ncc
-
-            spatial_smoothness_t = self.smoothness.spatial(deformation_field_t[idx], coords) * self.spatial_reg_weight
+            # if self.current_epoch % 5 == 0:
+            #     spatial_smoothness_t = self.smoothness.spatial(deformation_field_t[idx], coords) * self.spatial_reg_weight
+            # else:
+            #     spatial_smoothness_t = 0
+            spatial_smoothness_t, jacobian_determinant = self.smoothness.spatial(deformation_field_t[idx], coords) 
+            spatial_smoothness_t = spatial_smoothness_t * self.spatial_reg_weight
+            jac_det[idx] = jacobian_determinant
             spatial_smoothness += spatial_smoothness_t
             total_loss += (loss_at_t + spatial_smoothness_t)
 
-        print("NCC: {}, Smoothness: {}, Total loss {}".format(loss_at_t, spatial_smoothness, total_loss))
-        return loss_at_t, spatial_smoothness, total_loss
+        if self.current_epoch >= 70:
+            mono_loss = 0.0
+        else:
+            mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
+        total_loss += mono_loss
+        print("NCC: {}, Smoothness: {}, Total loss: {}, Mono loss: {}".format(loss_at_t, spatial_smoothness, total_loss, mono_loss))
+        return loss_at_t, spatial_smoothness, total_loss, mono_loss
 
     def mse_loss(self, warped_pixels, fixed_pixels):
         return torch.mean((fixed_pixels - warped_pixels) ** 2)

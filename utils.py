@@ -1,5 +1,7 @@
 import random
 from settings import *
+import time
+
 
 
 ###################evaluation matrics/regularisation##################################
@@ -304,12 +306,9 @@ class SpatialTransform():
         pass
 
 
-#####################SMOOTH FIELD###############
+#####################Regularization###############
 class SmoothDeformationField():
     """
-    Encourages smoothness, we compute the graident using finite difference and take the L2/L1 , penalize more using L2
-        -> by calculating absolute squared differences between neighbouring elements along dimensions and averaging, L1.
-
     Input: shape of [batch_size, flattened_patchsize, ndims]
     """
     def __init__(self, loss_type, gradient_type, patch_size, batch_size):
@@ -322,94 +321,87 @@ class SmoothDeformationField():
 
 
     def spatial(self, field, coords):
-        #using anaytic gradient, computing the derivates of field wrt coords
         if self.gradient_type == "analytic_gradient":
-            # jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
-            gradients = self.gradient_computation.gradient(coords, field)
-            l2_norm = torch.norm(gradients, dim=-1, p=2).mean()
-            return l2_norm
-        
+            # scaler = torch.cuda.amp.GradScaler()
+            # with torch.cuda.amp.autocast(cuda):
+            jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
 
-        #field is of shape [batch_size, *patch_size, ndims], use finite difference approximation
+
+            # jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
+            #can also compute frobenius norm of jacobian matrix i.e L2 norm in matrix form. result should be same in this case
+            l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2)  
+            smoothness_loss = l2.mean()  #scalar
+            return smoothness_loss, torch.det(jacobian_matrix)
+
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
-            spacing = 1 #spacing mm along x, y and z
+            spacing = 1 
             x = field[:, :, :, :, 0]
             y = field[:, :, :, :, 1]
             z = field[:, :, :, :, 2]
 
-            # compute gradients along each axis (x, y, z) for each displacement component, retuns a tuple of gradients along each axis
             gradients_x = torch.gradient(x, dim=(1, 2, 3), spacing=1)
             gradients_y = torch.gradient(y, dim=(1, 2, 3), spacing=1)
             gradients_z = torch.gradient(z, dim=(1, 2, 3), spacing=1)
 
-            #sum of mean squared gradients
-            smoothness = sum((grad**2).mean() for grad in gradients_x + gradients_y + gradients_z)
+            smoothness_loss = sum((grad**2).mean() for grad in gradients_x + gradients_y + gradients_z)
 
-            return smoothness
-           
-            # du = torch.gradient(field, spacing=1, dim=(1, 2, 3))
-            # dx = du[0]
-            # dy = du[1]
-            # dz = du[2]
-            # return (dx*dx).mean() + (dy*dy).mean() + (dz*dz).mean()
-
-    def temporal(self, field_t, time_points):
-        """
-        field_t: list of fields at different time points, each field is of shape [batch_size, *patch_size, ndims]
-        time_points: list of time points, len(time_points) = len(field_t) + 1
-
-        We compute:
-            d_phi/dt = (phi_t+1 - phi_t)/delta_t
-        """
+            return smoothness_loss
     
-        field_t = [field.view(self.batch_size, *self.patch_size, 
-                            len(self.patch_size)) for field in field_t]        
-        field_t = [field.unsqueeze(0) for field in field_t]
-        field_t = torch.cat(field_t, dim=0) 
-
-        delta_t = time_points[1:] - time_points[:-1] #compute_difference between consecutive time points
-        # u_diff = field_t[1:] - field_t[:-1] 
-        
-        # delta_t = delta_t.view(-1, 1, 1, 1, 1) 
-        
-        # temp_grad = u_diff / delta_t 
-        temp_grad = torch.gradient(field_t, delta_t=(time_points,), dim=0)  
-        print(temp_grad.shape)
-        tempreg = (temp_grad ** 2).mean() 
-        return tempreg
-
-  
-
 class GradientComputation():
     def __init__(self):
         pass
 
     def compute_matrix(self, coords, field):
         """
-        compute partial derivatives for each dimension of the field wrt each dimension of the coords.
-        useful for computing jacobian matrix
+        compute partial derivatives for each dimension of the field wrt each dimension of the coords in parallel.
         
+        Args:
+            coords: Tensor of shape [batch_size, num_points, dim].
+            field: Tensor of shape [batch_size, num_points, dim].
+        
+        Returns:
+            matrix: Tensor of shape [batch_size, num_points, dim, dim].
         """
-        dim = coords.shape[-1]
-        patch = coords.shape[1]
-        batch_size = coords.shape[0]
-        # print("in jac", coords.shape, field.shape, dim, coords.requires_grad, field.requires_grad)
-        matrix = torch.zeros(batch_size, patch, dim, dim)
+        batch_size, num_points, dim = coords.shape
+        #initialize the Jacobian matrix
+        matrix = torch.zeros(batch_size, num_points, dim, dim, device=coords.device)
 
-        for b in range(batch_size):
-            # print("in jac checking batch", coords[b].shape, field[b].shape, dim, coords.requires_grad, field.requires_grad)
-            for i in range(dim):
+        #loop over dimensions of the field (to calculate gradient w.r.t each dimension)
+        for d in range(dim):
+            grad_outputs = torch.zeros_like(field)
+            grad_outputs[..., d] = 1.0  #set grad_outputs to compute derivative w.r.t. dth output dimension
+
+            #compute gradients for all points accross all batches in parallel
+            grad = torch.autograd.grad(outputs=field, inputs=coords, grad_outputs=grad_outputs,create_graph=True,)[0]
+
+            #store the computed gradients in the jac_matrix
+            matrix[..., d] = grad
+        return matrix
+
+
+    # def compute_matrix(self, coords, field):
+    #     """
+    #     Alternative way to do it that is less effitient since i'm looping over each batch and then each dimension
+    #     compute partial derivatives for each dimension of the field wrt each dimension of the coords.
+    #     useful for computing jacobian matrix
+        
+    #     """
+       
+    #     batch_size, patch, dim = coords.shape #batch_size, flattened_patchsize, ndims
+    #     matrix = torch.zeros(batch_size, patch, dim, dim)
+
+    #     for b in range(batch_size):
+    #         for i in range(dim):
                 
-                matrix[b, :, i, :] = self.gradient(coords, field[b, :,  i], b) # for partial derivatives, wrt x,yz
+    #             matrix[b, :, i, :] = self.gradient(coords, field[b, :,  i], b)
 
-        return matrix   
+    #     return matrix   
+
     
     def gradient(self, input_coords, output, b=None, grad_outputs=None):
-        # print("in grad", input_coords.shape, output.shape, b, input_coords.requires_grad, output.requires_grad)
 
         grad_outputs = torch.ones_like(output)
-
         grad= torch.autograd.grad(output, [input_coords], grad_outputs=grad_outputs, create_graph=True)[0]
 
         if b == None:
@@ -417,6 +409,36 @@ class GradientComputation():
         else:
             return grad[b]
     
+
+class MonotonicConstraint():
+    """
+    Compute the d|J|/dt and penalize non-monotonicity
+    """
+
+    def __init__(self, patch_size, batch_size, time):
+        self.patch_size = patch_size
+        self.batch_size = batch_size
+        self.time = time
+
+
+    def forward(self, jacobian_determinants):
+        jacobian_determinants = jacobian_determinants.view(len(self.time.unique()), self.batch_size, *self.patch_size)
+        voxelwise_derivatives = torch.autograd.grad(
+            outputs=jacobian_determinants,
+            inputs=self.time,
+            grad_outputs=torch.ones_like(jacobian_determinants),
+            create_graph=True,
+        )[0]
+        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/10000
+       
+        ## using finite difference, check this later because of batchsize dimension 
+        # dj = jacobian_determinants[1:] - jacobian_determinants[:-1]
+        # dt = self.time[1:] - self.time[:-1]
+        # voxelwise_derivatives = dj / dt
+        return mono_loss
+
+
+
 class FiniteDifference():
     def __init__(self):
         pass

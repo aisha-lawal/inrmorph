@@ -26,7 +26,7 @@ torch.set_float32_matmul_precision('medium')
 # import torch._dynamo                                                                                                               
 # torch._dynamo.config.suppress_errors = True  
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
