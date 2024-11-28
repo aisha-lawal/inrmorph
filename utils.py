@@ -430,8 +430,8 @@ class MonotonicConstraint():
             grad_outputs=torch.ones_like(jacobian_determinants),
             create_graph=True,
         )[0]
-        mono_loss = torch.min(torch.relu(voxelwise_derivatives - self.epsilon).sum(), torch.relu(-voxelwise_derivatives - self.epsilon).sum())/10000
-        # mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/10000
+        # mono_loss = torch.min(torch.relu(voxelwise_derivatives - self.epsilon).sum(), torch.relu(-voxelwise_derivatives - self.epsilon).sum())/10000
+        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/10000
 
         ## using finite difference, check this later because of batchsize dimension 
         # dj = jacobian_determinants[1:] - jacobian_determinants[:-1]
