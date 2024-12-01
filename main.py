@@ -54,10 +54,13 @@ if __name__ == "__main__":
 
     patch_size = [12 for _ in range(len(I0.shape))]
 
-    npatches_train = 2000
-    npatches_val = 1000
+    # npatches_train = 2000
+    # npatches_val = 1000
+    npatches_train = 1200
+    npatches_val = 600
     batch_size = 12
-    spatial_reg = 0.01
-    monotonicity_reg = 0.5
+    # spatial_reg = 0.01
+    spatial_reg = 0.0
+    monotonicity_reg = 0.15
     temporal_reg = 1e+6
     main()

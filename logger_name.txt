@@ -12,3 +12,4 @@ default_monotonicloss_0.1
 default_monotonicloss_0.01_epoch70
 default_monotonicloss_0.25_epsilon1e-4
 finer_pairwise_b10_SS100_maskedloss
+default_monotonicloss_0.5default_monotonicloss_0.15_SS0.0_train1200_val600
