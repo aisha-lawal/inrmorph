@@ -1,203 +1,31 @@
-import random
-from settings import *
-import time
-
-
-
-###################evaluation matrics/regularisation##################################
-
-def spatial_reg(): #using diffusion reg
-    pass
-
-def temporal_reg(): #sobolev(try first order deriv, then second order for stricter penalty ), L1, L2, 
-    pass
-
-
-def mse_loss(*args: Any) -> int: #args = tuple of moving and fixed image    
-    # if len(args) != 2:
-    #     raise ValueError("Expecting two arguments:moving and fixed images")
-    t0, tn, phi_dims, coords = args
-    pass
-    
-
-
-
-################DATA LOADING AND PATCHING STUFF###########
-    
-def load_data(path: str, image) -> torch.tensor: #260, 260, 200
-    data = np.array(nib.load(path).get_fdata())
-    data = torch.tensor(data, device=device, dtype=torch.float32)
-    if image: 
-        # normalize for only images, not labels/masks
-        return normalise(data)
-    return data
-    
-def normalise(img: torch.Tensor) -> torch.Tensor:
-    img = (img - img.min())/(img.max() - img.min())
-    return (2 * img) - 1
-
-
-def get_time_points(data):
-    """
-    Gets data path and returns time points between each image and the first image in months.
-    """
-    splitpath = [data[i].split("/")[-1] for i in range(len(data))]
-    dates = [datetime.strptime(img.split('_')[1] + '_' + img.split('_')[2], "%Y_%m") for img in splitpath]
-    first_date = dates[0]
-    time_points = [0] + [(date.year - first_date.year) * 12 + (date.month - first_date.month) for date in dates[1:]]
-    return time_points
-
-def define_coords(imgshape) -> torch.Tensor: 
-    """
-    defines coordinate between -1 to 1 of shape ndims
-    returns tensor of shape (*imgshape, ndims)
-    """
-    ndims = len(imgshape)
-    coords = [torch.linspace(-1, 1, imgshape[i])
-               for i in range(ndims)]
-    
-    coords = torch.meshgrid(*coords, indexing=None)
-    coords = torch.stack(coords, dim=ndims)
-
-    return coords
-
-
-# training is patchwise, val/test is full image!
-class CoordsPatchesTrain(Dataset):
-    def __init__(self, patch_size, npatches, imgshape):
-        """doesnt account for non factors, look into later"""
-    
-        self.patch_size = patch_size
-        assert len(self.patch_size) == 3 ,"incorrect patchsize, working with 3D data"
-
-        self.imgshape = imgshape
-        self.coords = define_coords(self.imgshape)
-        self.npaches = npatches
-
-        
-        #adjust for ndims
-        height, width, depth, dims = self.coords.size()
-        patch_height, patch_width, patch_depth = patch_size
-        num_patches_h = height // patch_height
-        num_patches_w = width // patch_width
-        num_patches_d = depth // patch_depth
-
-        self.coords = self.coords.view(num_patches_h, patch_height, num_patches_w, 
-                                       patch_width, num_patches_d, patch_depth, dims)
-        # transpose and reshape the tensor to get patches as separate dimensions
-
-        # self.coords = self.coords.permute(0, 2, 1, 3, 4).contiguous()
-        self.coords = self.coords.permute(0, 2, 4, 1, 3, 5, 6).contiguous()
-
-        self.coords = self.coords.view(num_patches_h * num_patches_w * num_patches_d, 
-                                       patch_height, patch_width, patch_depth, dims)
-    
-
-
-    def __len__(self):
-        return self.npaches
-
-    def __getitem__(self, idx):
-        # randomly sample npactches(with replacement)
-        inds = torch.randint(0, len(self.coords), (self.npaches,))
-        self.coords = self.coords[inds] #npatches, *patch_hwd, dims
-        return self.coords[idx]
-
-
-
-class CoordsPatch(Dataset):
-    def __init__(self, patch_size, npatches, imgshape):
-        # super(self, CoordsPatch).__init__()
-        self.patch_size = np.ceil(np.array(patch_size)/2).astype(np.int16)    
-        self.ndims = len(self.patch_size)
-        self.imgshape = imgshape
-        self.coords = define_coords(self.imgshape)
-        self.dx = torch.div(2, torch.tensor(self.coords.shape[:-1]) )
-        self.npatches = npatches #how many random patches to sample
-
-        self.patch_size = np.ceil(np.array(patch_size)/2).astype(np.int16) 
-        patch_dx_dims = torch.tensor(self.patch_size) * self.dx 
-        
-        patch_coords = [torch.linspace(-patch_dx_dims[i], patch_dx_dims[i], 2*self.patch_size[i]) for i in range(self.ndims)]
-        patch_coords = torch.meshgrid(*patch_coords, indexing=None)
-        self.patch_coords = torch.stack(patch_coords, dim=self.ndims)  
-
-        coords = self.coords[self.patch_size[0]:-self.patch_size[0], 
-                        self.patch_size[1]:-self.patch_size[1], self.patch_size[2]:-self.patch_size[2], ...]
-
-
-        self.spatial_size = coords.shape[:-1]                                            
-        self.coords = coords
-
-    def __len__(self):
-        return self.npatches
-    
-    def __getitem__(self, idx):
-        indx = np.random.randint(0, np.prod(self.spatial_size))
-        
-        inds = np.unravel_index(indx, self.spatial_size)
-        
-        center = self.coords[inds[0], inds[1], inds[2],  :]
-        coords = torch.clone(self.patch_coords)
-        
-        coords[..., 0] = coords[..., 0] + center[0] 
-        coords[..., 1] = coords[..., 1] + center[1]
-        coords[..., 2] = coords[..., 2] + center[2]
-        return coords
-
-class CoordsImageTest(Dataset):
-    def __init__(self, imgshape, scale_factor = 1):
-        """
-        input: coords with shape (img_height, img_width, ndims)
-        Returns: flatten the image where each point has ndims, returns shape (imgshape, ndims)
-        """
-        self.imgshape = imgshape
-        self.coords = define_coords(self.imgshape)
-        self.scale_factor = scale_factor
-        
-        if self.scale_factor!=1: #to test with larger resolution
-            self.coords = F.interpolate(self.coords.permute(3, 2, 0, 1).unsqueeze(0), scale_factor=self.scale_factor, mode='trilinear', align_corners=True)
-            self.coords = self.coords.squeeze().permute(2, 3, 1, 0)
-
-            # coords = F.interpolate(coords.permute(2, 0, 1).unsqueeze(0), scale_factor=self.scale_factor, mode='bilinear', align_corners=True)
-            # coords = coords.squeeze().permute(1, 2, 0)
-
-        self.ndims = self.coords.shape[-1]
-        self.coords = self.coords.view([np.prod(self.coords.shape[:-1]), self.ndims])
-
-    def __len__(self):
-        return self.coords.shape[0] #flattened imgshape
-    
-    def __getitem__(self, idx):
-        return self.coords[idx, :]
+import numpy as np
+import torch
+from config import device
 
 
 ##########SPATIAL TRANSFORM#############
 
-class SpatialTransform():
-    def __init__(self) -> torch.Tensor:
+class SpatialTransform:
+    def __init__(self) -> None:
         """
         Input: takes in predicted deformation at point x,y,z and input coordinates x,y,z,
             transforms predicted deformation to same coordinate space as coord(input coord). We
             derive the "shifted_coords" from this.
             This means the displacement field that moves image/point A to B will be "in the space of B"!!
-        
-        Interpolation: For each coordinate point in "shifted_coords", we need to derive the pixel 
-            intensity values for each coordinate. We derive these pixel values from the moving image. So 
-            basically we transform the coordinates of the pixels in the moving image to that of the 
-            "shifted_coords". To derive these pixel values, we do interpolation for each point on the 
+
+        Interpolation: For each coordinate point in "shifted_coords", we need to derive the pixel
+            intensity values for each coordinate. We derive these pixel values from the moving image. So
+            basically we transform the coordinates of the pixels in the moving image to that of the
+            "shifted_coords". To derive these pixel values, we do interpolation for each point on the
 
         """
-        
 
-    def bilinear_interpolation(self,coords: torch.Tensor, img: torch.Tensor):
-        
-
+    def bilinear_interpolation(self, coords: torch.Tensor, img: torch.Tensor):
         x_coords = coords[:, :, 0]
         y_coords = coords[:, :, 1]
 
-        #rescale coords from to range between 0 and imgshape -1, useful since x_coords and y_coords
-        # were initially between -1 and 1 
+        # rescale coords from to range between 0 and imgshape -1, useful since x_coords and y_coords
+        # were initially between -1 and 1
         x_coords = (x_coords + 1) * (img.shape[0] - 1) * 0.5
         y_coords = (y_coords + 1) * (img.shape[1] - 1) * 0.5
 
@@ -206,8 +34,8 @@ class SpatialTransform():
         x1 = x0 + 1
         y1 = y0 + 1
 
-        # we have to clamp to ensure the nearest neighbours are within the boundaries of the image, 
-        #if not we may not find that particular point
+        # we have to clamp to ensure the nearest neighbours are within the boundaries of the image,
+        # if not we may not find that particular point
         x0 = torch.clamp(x0, 0, img.shape[0] - 1)
         x1 = torch.clamp(x1, 0, img.shape[0] - 1)
         y0 = torch.clamp(y0, 0, img.shape[1] - 1)
@@ -217,37 +45,37 @@ class SpatialTransform():
         # r2 = img[x0, y1] * ((x1 - x_coords)/(x1 - x0)) + img[x1, y1] * ((x_coords - x0)/(x1 - x0))
         # pixel_values = r1 * ((y1 - y_coords)/(y1 - y0)) + r2 * ((y_coords - y0)/(y1 - y0))
 
-      
         x_coords = x_coords - x0
         y_coords = y_coords - y0
 
-        pixel_values = (img[x0, y0] * (1 - x_coords) * (1 - y_coords) 
-                + img[x1, y0] * x_coords * (1 - y_coords) 
-                + img[x0, y1] * (1 - x_coords) * y_coords
-                + img[x1, y1] * x_coords * y_coords) 
-        
+        pixel_values = (img[x0, y0] * (1 - x_coords) * (1 - y_coords)
+                        + img[x1, y0] * x_coords * (1 - y_coords)
+                        + img[x0, y1] * (1 - x_coords) * y_coords
+                        + img[x1, y1] * x_coords * y_coords)
+
         # print("in interpolation", pixel_values.shape) #[batch_size, flattened_patchsize]
-      
-        return pixel_values 
-       
-    #from INR paper
-    def trilinear_interpolation(self,coords, img): 
+
+        return pixel_values
+
+        # from INR paper
+
+    def trilinear_interpolation(self, coords: torch.Tensor, img: torch.Tensor) -> torch.Tensor:
         """
         Args: coords of shape [batchsize, flattened_patchsize, ndims]
             img of shape [h,w,d]
-        
-        
+
+
         """
         x_coords = coords[:, :, 0]
         y_coords = coords[:, :, 1]
         z_coords = coords[:, :, 2]
-        
-        x_coords = (x_coords + 1) * (img.shape[0] - 1) * 0.5 
+
+        x_coords = (x_coords + 1) * (img.shape[0] - 1) * 0.5
         y_coords = (y_coords + 1) * (img.shape[1] - 1) * 0.5
         z_coords = (z_coords + 1) * (img.shape[2] - 1) * 0.5
 
         x0 = torch.floor(x_coords.detach()).to(torch.long)
-        y0 = torch.floor(y_coords.detach()).to(torch.long) 
+        y0 = torch.floor(y_coords.detach()).to(torch.long)
         z0 = torch.floor(z_coords.detach()).to(torch.long)
         x1 = x0 + 1
         y1 = y0 + 1
@@ -265,19 +93,19 @@ class SpatialTransform():
         z = z_coords - z0
 
         pixel_values = (
-            img[x0, y0, z0] * (1 - x) * (1 - y) * (1 - z)
-            + img[x1, y0, z0] * x * (1 - y) * (1 - z)
-            + img[x0, y1, z0] * (1 - x) * y * (1 - z)
-            + img[x0, y0, z1] * (1 - x) * (1 - y) * z
-            + img[x1, y0, z1] * x * (1 - y) * z
-            + img[x0, y1, z1] * (1 - x) * y * z
-            + img[x1, y1, z0] * x * y * (1 - z)
-            + img[x1, y1, z1] * x * y * z
+                img[x0, y0, z0] * (1 - x) * (1 - y) * (1 - z)
+                + img[x1, y0, z0] * x * (1 - y) * (1 - z)
+                + img[x0, y1, z0] * (1 - x) * y * (1 - z)
+                + img[x0, y0, z1] * (1 - x) * (1 - y) * z
+                + img[x1, y0, z1] * x * (1 - y) * z
+                + img[x0, y1, z1] * (1 - x) * y * z
+                + img[x1, y1, z0] * x * y * (1 - z)
+                + img[x1, y1, z1] * x * y * z
         )
-        
+
         return pixel_values
 
-    def nearest_neighbor_interpolation(self, coords, img):
+    def nearest_neighbor_interpolation(self, coords: torch.Tensor, img: torch.Tensor) -> torch.Tensor:
         """
         Args: coords of shape [batchsize, flattened_patchsize, ndims]
             img of shape [h,w,d]
@@ -285,13 +113,13 @@ class SpatialTransform():
         x_coords = coords[:, :, 0]
         y_coords = coords[:, :, 1]
         z_coords = coords[:, :, 2]
-        
-        x_coords = (x_coords + 1) * (img.shape[0] - 1) * 0.5 
+
+        x_coords = (x_coords + 1) * (img.shape[0] - 1) * 0.5
         y_coords = (y_coords + 1) * (img.shape[1] - 1) * 0.5
         z_coords = (z_coords + 1) * (img.shape[2] - 1) * 0.5
 
         x0 = torch.round(x_coords.detach()).to(torch.long)
-        y0 = torch.round(y_coords.detach()).to(torch.long) 
+        y0 = torch.round(y_coords.detach()).to(torch.long)
         z0 = torch.round(z_coords.detach()).to(torch.long)
 
         x0 = torch.clamp(x0, 0, img.shape[0] - 1)
@@ -299,18 +127,19 @@ class SpatialTransform():
         z0 = torch.clamp(z0, 0, img.shape[2] - 1)
 
         pixel_values = img[x0, y0, z0]
-       
+
         return pixel_values
-    
-    def spline(self,):
+
+    def spline(self, ):
         pass
 
 
 #####################Regularization###############
-class SmoothDeformationField():
+class SmoothDeformationField:
     """
     Input: shape of [batch_size, flattened_patchsize, ndims]
     """
+
     def __init__(self, loss_type, gradient_type, patch_size, batch_size):
 
         self.loss_type = loss_type
@@ -319,23 +148,21 @@ class SmoothDeformationField():
         self.gradient_type = gradient_type
         self.gradient_computation = GradientComputation()
 
-
     def spatial(self, field, coords):
         if self.gradient_type == "analytic_gradient":
             # scaler = torch.cuda.amp.GradScaler()
             # with torch.cuda.amp.autocast(cuda):
             jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
 
-
             # jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
-            #can also compute frobenius norm of jacobian matrix i.e L2 norm in matrix form. result should be same in this case
-            l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2)  
-            smoothness_loss = l2.mean()  #scalar
+            # can also compute frobenius norm of jacobian matrix i.e L2 norm in matrix form. result should be same in this case
+            l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2)
+            smoothness_loss = l2.mean()  # scalar
             return smoothness_loss, torch.det(jacobian_matrix)
 
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
-            spacing = 1 
+            spacing = 1
             x = field[:, :, :, :, 0]
             y = field[:, :, :, :, 1]
             z = field[:, :, :, :, 2]
@@ -344,73 +171,72 @@ class SmoothDeformationField():
             gradients_y = torch.gradient(y, dim=(1, 2, 3), spacing=1)
             gradients_z = torch.gradient(z, dim=(1, 2, 3), spacing=1)
 
-            smoothness_loss = sum((grad**2).mean() for grad in gradients_x + gradients_y + gradients_z)
+            smoothness_loss = sum((grad ** 2).mean() for grad in gradients_x + gradients_y + gradients_z)
 
             return smoothness_loss
-    
-class GradientComputation():
+
+
+class GradientComputation:
     def __init__(self):
         pass
 
     def compute_matrix(self, coords, field):
         """
         compute partial derivatives for each dimension of the field wrt each dimension of the coords in parallel.
-        
+
         Args:
             coords: Tensor of shape [batch_size, num_points, dim].
             field: Tensor of shape [batch_size, num_points, dim].
-        
+
         Returns:
             matrix: Tensor of shape [batch_size, num_points, dim, dim].
         """
         batch_size, num_points, dim = coords.shape
-        #initialize the Jacobian matrix
+        # initialize the Jacobian matrix
         matrix = torch.zeros(batch_size, num_points, dim, dim, device=coords.device)
 
-        #loop over dimensions of the field (to calculate gradient w.r.t each dimension)
+        # loop over dimensions of the field (to calculate gradient w.r.t each dimension)
         for d in range(dim):
             grad_outputs = torch.zeros_like(field)
-            grad_outputs[..., d] = 1.0  #set grad_outputs to compute derivative w.r.t. dth output dimension
+            grad_outputs[..., d] = 1.0  # set grad_outputs to compute derivative w.r.t. dth output dimension
 
-            #compute gradients for all points accross all batches in parallel
-            grad = torch.autograd.grad(outputs=field, inputs=coords, grad_outputs=grad_outputs,create_graph=True,)[0]
+            # compute gradients for all points accross all batches in parallel
+            grad = torch.autograd.grad(outputs=field, inputs=coords, grad_outputs=grad_outputs, create_graph=True, )[0]
 
-            #store the computed gradients in the jac_matrix
+            # store the computed gradients in the jac_matrix
             matrix[..., d] = grad
         return matrix
-
 
     # def compute_matrix(self, coords, field):
     #     """
     #     Alternative way to do it that is less effitient since i'm looping over each batch and then each dimension
     #     compute partial derivatives for each dimension of the field wrt each dimension of the coords.
     #     useful for computing jacobian matrix
-        
+
     #     """
-       
+
     #     batch_size, patch, dim = coords.shape #batch_size, flattened_patchsize, ndims
     #     matrix = torch.zeros(batch_size, patch, dim, dim)
 
     #     for b in range(batch_size):
     #         for i in range(dim):
-                
+
     #             matrix[b, :, i, :] = self.gradient(coords, field[b, :,  i], b)
 
-    #     return matrix   
+    #     return matrix
 
-    
     def gradient(self, input_coords, output, b=None, grad_outputs=None):
 
         grad_outputs = torch.ones_like(output)
-        grad= torch.autograd.grad(output, [input_coords], grad_outputs=grad_outputs, create_graph=True)[0]
+        grad = torch.autograd.grad(output, [input_coords], grad_outputs=grad_outputs, create_graph=True)[0]
 
         if b == None:
             return grad
         else:
             return grad[b]
-    
 
-class MonotonicConstraint():
+
+class MonotonicConstraint:
     """
     Compute the d|J|/dt and penalize non-monotonicity
     """
@@ -421,7 +247,6 @@ class MonotonicConstraint():
         self.time = time
         self.epsilon = 1e-4
 
-
     def forward(self, jacobian_determinants):
         jacobian_determinants = jacobian_determinants.view(len(self.time.unique()), self.batch_size, *self.patch_size)
         voxelwise_derivatives = torch.autograd.grad(
@@ -431,17 +256,16 @@ class MonotonicConstraint():
             create_graph=True,
         )[0]
         # mono_loss = torch.min(torch.relu(voxelwise_derivatives - self.epsilon).sum(), torch.relu(-voxelwise_derivatives - self.epsilon).sum())/10000
-        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/10000
+        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum()) / 10000
 
-        ## using finite difference, check this later because of batchsize dimension 
+        ## using finite difference, check this later because of batchsize dimension
         # dj = jacobian_determinants[1:] - jacobian_determinants[:-1]
         # dt = self.time[1:] - self.time[:-1]
         # voxelwise_derivatives = dj / dt
         return mono_loss
 
 
-
-class FiniteDifference():
+class FiniteDifference:
     def __init__(self):
         pass
 
@@ -450,7 +274,7 @@ class FiniteDifference():
         Takes as input field of shape [batch_size, *patch_size, ndims]
         """
         field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
-        spacing = 1 #spacing along x, y and z
+        spacing = 1  # spacing along x, y and z
         x = field[:, :, :, :, 0]
         y = field[:, :, :, :, 1]
         z = field[:, :, :, :, 2]
@@ -460,8 +284,8 @@ class FiniteDifference():
         gradients_y = torch.gradient(y, dim=(1, 2, 3), spacing=spacing)
         gradients_z = torch.gradient(z, dim=(1, 2, 3), spacing=spacing)
 
-        #sum of mean squared gradients
-        smoothness = sum((grad**2).mean() for grad in gradients_x + gradients_y + gradients_z)
+        # sum of mean squared gradients
+        smoothness = sum((grad ** 2).mean() for grad in gradients_x + gradients_y + gradients_z)
         return smoothness
 
         # du = torch.gradient(field, spacing)
@@ -470,64 +294,53 @@ class FiniteDifference():
         # dz = du[2]
         # return (dx*dx).mean() + (dy*dy).mean() + (dz*dz).mean()
 
-class PenalizeLocalVolumeChange():
+
+class PenalizeLocalVolumeChange:
     """
     penalizes local volume change
     """
+
     def __init__(self):
         pass
+
     def forward(self, coords, field):
-        ndims = coords.shape[-1] 
+        ndims = coords.shape[-1]
 
         jacobian_matrix = torch.zeros(coords.shape[0], ndims, ndims)
 
         for i in range(ndims):
-
-            jacobian_matrix[:, i, :] = self.gradient(coords, field[:, i]) #derivative of field wrt each dimension in coords
-            jacobian_matrix[:, i, i] += torch.ones_like(jacobian_matrix[:, i, i]) #add ones on diagonal to preserve local volume across diagnoal elements
+            jacobian_matrix[:, i, :] = self.gradient(coords,
+                                                     field[:, i])  # derivative of field wrt each dimension in coords
+            jacobian_matrix[:, i, i] += torch.ones_like(
+                jacobian_matrix[:, i, i])  # add ones on diagonal to preserve local volume across diagnoal elements
 
         loss = 1 - torch.det(jacobian_matrix)
-        loss = torch.mean(torch.abs(loss)) #absolute deviation between 1(unity determinant- i.e no volume change) and |J|
+        loss = torch.mean(
+            torch.abs(loss))  # absolute deviation between 1(unity determinant- i.e no volume change) and |J|
         return loss
-    
+
     def gradient(self, coords, field):
         gradient_outputs = torch.ones_like(field)
         gradient = torch.autograd.grad(field, [coords], grad_outputs=gradient_outputs, create_graph=True)[0]
-        return gradient 
+        return gradient
 
 
-#########################TIME SEQUENCE GENERATION#########################
-def generate_random_sum(len_time_seq, n):
-    cut_points = sorted(random.sample(range(len_time_seq), n - 1))
-    values = [cut_points[0]] + [cut_points[i] - cut_points[i - 1] 
-                                for i in range(1, n - 1)] + [len_time_seq - cut_points[-1]]
-    return values
-
-def generate_time_sequence(time_points, random_indexes):
-    time_seq = []
-    for i in range(len(time_points)-1):
-        random_values = np.random.uniform(time_points[i], time_points[i+1], random_indexes[i]-2)
-        random_values = np.concatenate(([time_points[i]], np.sort(random_values), [time_points[i+1]]))
-        time_seq = np.concatenate((time_seq, random_values))
-    time_seq = np.unique(time_seq)  
-    return time_seq
-    
-
-# positional encoding
+########################POSITIONAL ENCODING##########################
 class PositionalEncoding:
     """
     Each position should be the same size as the output of the time embedding since we are summing them up
     """
+
     def __init__(self, len_token_index=100, dim_out_embs=64, n=10000):
         self.dim_out_embs = dim_out_embs
         self.n = n
-        self.len_token_index = len_token_index #len_token_index == len_time_object
+        self.len_token_index = len_token_index  # len_token_index == len_time_object
 
-    def encode(self): 
+    def encode(self):
         pos_enc = torch.zeros(self.len_token_index, self.dim_out_embs).to(device)
         for token_index in range(self.len_token_index):
-            for i in np.arange(int(self.dim_out_embs/2)):
-                denominator = np.power(self.n, 2*i/self.dim_out_embs)
-                pos_enc[token_index, 2*i] = np.sin(token_index/denominator)
-                pos_enc[token_index, 2*i+1] = np.cos(token_index/denominator)
+            for i in np.arange(int(self.dim_out_embs / 2)):
+                denominator = np.power(self.n, 2 * i / self.dim_out_embs)
+                pos_enc[token_index, 2 * i] = np.sin(token_index / denominator)
+                pos_enc[token_index, 2 * i + 1] = np.cos(token_index / denominator)
         return pos_enc
