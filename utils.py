@@ -150,8 +150,6 @@ class SmoothDeformationField:
 
     def spatial(self, field, coords):
         if self.gradient_type == "analytic_gradient":
-            # scaler = torch.cuda.amp.GradScaler()
-            # with torch.cuda.amp.autocast(cuda):
             jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
 
             # jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
@@ -174,6 +172,23 @@ class SmoothDeformationField:
             smoothness_loss = sum((grad ** 2).mean() for grad in gradients_x + gradients_y + gradients_z)
 
             return smoothness_loss
+
+    def temporal(self, batch_size, patch_size, field_t, time):
+        """
+        we do dfield/dt
+        field is of shape [batch_size, flattened_patchsize, ndims] and len(time.unique())
+        """
+        dims = len(patch_size)
+        field_t = [field.view(batch_size, *patch_size, dims) for field in field_t]
+        field_t = torch.stack(field_t, dim=0)
+        field_dt = torch.autograd.grad(
+            outputs=field_t,
+            inputs=time,
+            grad_outputs=torch.ones_like(field_t),
+            create_graph=True,
+        )[0]
+        temporal_smoothness = (field_dt ** 2).mean(dim=0).sum()
+        return temporal_smoothness
 
 
 class GradientComputation:

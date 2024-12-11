@@ -1,4 +1,7 @@
 from pathlib import Path
+import random
+import numpy as np
+
 import torch
 import json
 import os
@@ -22,6 +25,12 @@ def get_datapath():
         return str(Path.cwd() / "data") + "/"
 
 
+def set_seed(seed: int = 42):
+    torch.random.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+
 def arg():
     parser = ArgumentParser()
 
@@ -32,7 +41,7 @@ def arg():
 
     parser.add_argument("--network_type", type=str,
                         dest="network_type",
-                        default='siren',
+                        required=True,
                         help="relu or siren or finer")
 
     parser.add_argument("--dir_path", type=str,
@@ -99,6 +108,36 @@ def arg():
                         default=[0, 13, 14, 24],
                         help="time difference in months between scans 0 and each of t, start with 0")
 
+    parser.add_argument("--batch_size", type=int,
+                        dest="batch_size",
+                        default=48,
+                        help="batch size")
+
+    parser.add_argument("--patch_size", type=int,
+                        dest="patch_size",
+                        default=12,
+                        help="patch size")
+
+    parser.add_argument("--val_split", type=float,
+                        dest="val_split",
+                        default=0.3,
+                        help="val split")
+
+    parser.add_argument("--scale_factor", type=float,
+                        dest="scale_factor",
+                        default=0.5,
+                        help="resolution of the image to to train with")
+
+    parser.add_argument("--num_patches", type=int,
+                        dest="num_patches",
+                        default=2000,
+                        help="total number of patches to be sampled for both train and val")
+
+    parser.add_argument("--num_epochs", type=int,
+                        dest="num_epochs",
+                        default=250,
+                        help="total number of epochs")
+
     parser.add_argument("--gradient_type", type=str,
                         dest="gradient_type",
                         default="finite_difference",
@@ -128,7 +167,7 @@ def wandb_setup():
         name=args.logger_name,
         log_model=True,
     )
-    # logger.experiment.log_code()
+    logger.experiment.log_code()
 
     return model_checkpoint, early_stopping, logger
 

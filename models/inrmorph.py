@@ -1,12 +1,15 @@
 from typing import Any
-import numpy as np
 import torch.nn as nn
-from config import *
+
+from config import set_seed, device
+import numpy as np
+import torch
 from models.finer import Finer
 from models.relu import ReLU
 from models.siren import Siren
 from utils import SpatialTransform, SmoothDeformationField, MonotonicConstraint
 import lightning as pl
+
 
 class InrMorph(pl.LightningModule):
     def __init__(self, *args: Any):
@@ -23,15 +26,17 @@ class InrMorph(pl.LightningModule):
         self.hidden_features = 256
         self.hidden_layers = 5
         self.omega = 30
+        self.seed = 42
         # self.time = self.time.clone().detach().requires_grad_(True)
         self.time = self.time.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand(-1, self.batch_size,
-                                                                                             *self.patch_size).clone().detach().requires_grad_(True)
+                                                                                             *self.patch_size).clone().detach().requires_grad_(
+            True)
         self.first_omega = 30
         self.hidden_omega = 30
         self.init_method = "sine"
         self.init_gain = 1
         self.fbs = 10  # k for bias initialization according to paper optimal
-
+        self.set_seed = set_seed(self.seed)
         assert self.loss_type in ["L1", "L2"], "Invalid loss type"
         assert self.gradient_type in ["finite_difference", "analytic_gradient"], "Invalid computation type"
         assert self.network_type in ["siren", "relu", "finer"], "Invalid network type"
@@ -84,10 +89,6 @@ class InrMorph(pl.LightningModule):
         torch.set_grad_enabled(True)
         coords = batch
         val_loss = self.train_val_pipeline(coords, "val")
-        # if self.current_epoch % 50 == 0:
-
-        #     self.visualize_mid_train()
-
         return val_loss
 
     def train_val_pipeline(self, coords: torch.Tensor, process: str):
@@ -97,12 +98,18 @@ class InrMorph(pl.LightningModule):
         displacement_t = self.forward(coords)
         warped_t, fixed, deformation_field_t = self.compute_transform(coords, displacement_t)
 
-        ncc, smoothness, loss, mono_loss = self.compute_loss(warped_t, fixed, deformation_field_t, coords)
+        ncc, spatial_smoothness, loss, mono_loss, temporal_smoothness = self.compute_loss(warped_t, fixed, deformation_field_t, coords)
 
-        self.log(f"{process}_ncc", ncc, on_epoch=True, sync_dist=True, on_step=False)
-        self.log(f"{process}_spatial_smoothness", smoothness, on_epoch=True, sync_dist=True, on_step=False)
-        self.log(f"{process}_mono_loss", mono_loss, on_epoch=True, sync_dist=True, on_step=False)
-        self.log(f"{process}_loss", loss, on_epoch=True, sync_dist=True, on_step=False)
+        metrics = {
+            f"{process}_ncc": ncc,
+            f"{process}_spatial_smoothness": spatial_smoothness,
+            f"{process}_loss": loss,
+            f"{process}_mono_loss": mono_loss,
+            f"{process}_temporal_smoothness": temporal_smoothness,
+        }
+
+        for name, value in metrics.items():
+            self.log(name, value, on_epoch=True, on_step=False)
 
         return loss
 
@@ -164,7 +171,7 @@ class InrMorph(pl.LightningModule):
         """
         mono_loss = 0
         total_loss = 0
-        loss_at_t = 0
+        similarity = 0
         spatial_smoothness = 0
         jac_det = torch.zeros(len(self.time.unique()), self.batch_size, np.prod(self.patch_size)).to(device)
         for idx, _ in enumerate(self.time.unique()):
@@ -173,10 +180,10 @@ class InrMorph(pl.LightningModule):
                 dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
                 dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
 
-                loss_at_t = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
+                similarity = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
             else:
                 ncc = self.ncc_loss(warped_t[idx - 1], fixed)
-                loss_at_t += ncc
+                similarity += ncc
 
             if self.gradient_type == "analytic_gradient":
                 spatial_smoothness_t, jac_det[idx] = self.smoothness.spatial(deformation_field_t[idx], coords)
@@ -186,18 +193,22 @@ class InrMorph(pl.LightningModule):
 
             spatial_smoothness_t = spatial_smoothness_t * self.spatial_reg_weight
             spatial_smoothness += spatial_smoothness_t
-            total_loss += (loss_at_t + spatial_smoothness_t)
+            total_loss += (similarity + spatial_smoothness_t)
 
+        temporal_smoothness = self.smoothness.temporal(self.batch_size, self.patch_size, deformation_field_t,
+                                                       self.time) * self.temporal_reg_weight
+        total_loss += temporal_smoothness
         if jac_det != None:
             mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
             total_loss += mono_loss
 
-        print("NCC: {}, Smoothness: {}, Total loss: {}, Mono loss: {}".format(loss_at_t, spatial_smoothness, total_loss,
-                                                                              mono_loss))
-        return loss_at_t, spatial_smoothness, total_loss, mono_loss
+        print(
+            "NCC: {}, Spatial smoothness: {}, Total loss: {}, Mono loss: {}, Temporal smoothness: {}".format(similarity, spatial_smoothness, total_loss,
+                                                                            mono_loss, temporal_smoothness))
+        return similarity, spatial_smoothness, total_loss, mono_loss, temporal_smoothness
 
-    def mse_loss(self, warped_pixels, fixed_pixels):
-        return torch.mean((fixed_pixels - warped_pixels) ** 2)
+    def mse_loss(self, predicted, target):
+        return torch.mean((target - predicted) ** 2)
 
     def ncc_loss(self, warped_pixels, fixed_pixels):
         """
@@ -219,15 +230,3 @@ class InrMorph(pl.LightningModule):
             nn.Linear(hidden_features, out_features),
         )
         return mapping
-
-    def wandb_log_images(self, It, I0, moved, deformation_field_t, slice):
-        images = {
-            "It": wandb.Image(It[0][:, :, slice].cpu().detach().numpy()),
-            "I0": wandb.Image(I0[0][:, :, slice].cpu().detach().numpy()),
-            "warped": wandb.Image(moved[0][:, :, slice].cpu().detach().numpy()),
-            "deformation_field": wandb.Image(
-                deformation_field_t.view(self.batch_size, *self.patch_size, self.ndims)[0][:, :, slice,
-                -1].cpu().detach().numpy())
-        }
-
-        wandb.log({"images": images})

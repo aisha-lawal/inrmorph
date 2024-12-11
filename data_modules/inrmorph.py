@@ -1,11 +1,18 @@
+import glob
 from datetime import datetime
 import random
+from typing import List
+
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn import functional as F
 import nibabel as nib
-from config import device
+
+from config import device, set_seed
+
+
+# device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
 # training is patchwise, val/test is full image!
@@ -56,12 +63,14 @@ class CoordsPatch(Dataset):
         self.coords = define_coords(self.img_shape)
         self.dx = torch.div(2, torch.tensor(self.coords.shape[:-1]))
         self.num_patches = num_patches  # how many random patches to sample
+        self.set_seed = set_seed(42)
 
         self.patch_size = np.ceil(np.array(patch_size) / 2).astype(np.int16)
         patch_dx_dims = torch.tensor(self.patch_size) * self.dx
 
-        patch_coords = [torch.linspace(-patch_dx_dims[i], patch_dx_dims[i], 2 * self.patch_size[i]) for i in
-                        range(self.ndims)]
+        patch_coords = [torch.linspace(-patch_dx_dims[i], patch_dx_dims[i],
+                                       2 * self.patch_size[i]) for i in range(self.ndims)]
+
         patch_coords = torch.meshgrid(*patch_coords, indexing=None)
         self.patch_coords = torch.stack(patch_coords, dim=self.ndims)
 
@@ -75,6 +84,7 @@ class CoordsPatch(Dataset):
         return self.num_patches
 
     def __getitem__(self, idx):
+
         indx = np.random.randint(0, np.prod(self.spatial_size))
 
         inds = np.unravel_index(indx, self.spatial_size)
@@ -88,12 +98,51 @@ class CoordsPatch(Dataset):
         return coords
 
 
+class InrMorphDataModule:
+    def __init__(self,
+                 patch_size: List[int],
+                 num_patches: int,
+                 val_split: float,
+                 batch_size: int,
+                 image_shape: torch.Size):
+        self.patch_size = patch_size
+        self.num_patches = num_patches
+        self.val_split = val_split
+        self.batch_size = batch_size
+        self.image_shape = image_shape
+
+        self.seed = 42
+        self.num_workers = 8
+        self.drop_last = True
+
+    def generator(self):
+        return torch.Generator().manual_seed(self.seed)
+
+    # take all num_patches then divide after
+    def dataloaders(self):
+        dataset = CoordsPatch(patch_size=self.patch_size,
+                              num_patches=self.num_patches, img_shape=self.image_shape)
+        # dataset above returns total number of patches
+        val_size = int(self.val_split * len(dataset))
+        train_size = len(dataset) - val_size
+
+        # split patches based on val porportion
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=self.generator())
+        train_loader = DataLoader(dataset=train_dataset, batch_size=self.batch_size, shuffle=True,
+                                  num_workers=self.num_workers, drop_last=True)
+        val_loader = DataLoader(dataset=val_dataset, batch_size=self.batch_size, shuffle=True,
+                                num_workers=self.num_workers, drop_last=True)
+        print("train is ", len(train_loader), "val is", len(val_loader))
+        return train_loader, val_loader
+
+
 class CoordsImageTest(Dataset):
     def __init__(self, img_shape, scale_factor=1):
         """
         input: coords with shape (img_height, img_width, ndims)
         Returns: flatten the image where each point has ndims, returns shape (img_shape, ndims)
         """
+        # should return different coordinates for training and validation
         self.img_shape = img_shape
         self.coords = define_coords(self.img_shape)
         self.scale_factor = scale_factor
@@ -116,7 +165,6 @@ class CoordsImageTest(Dataset):
         return self.coords[idx, :]
 
 
-
 def define_coords(img_shape) -> torch.Tensor:
     """
     defines coordinate between -1 to 1 of shape ndims
@@ -132,7 +180,6 @@ def define_coords(img_shape) -> torch.Tensor:
     return coords
 
 
-
 ################DATA LOADING AND ###########
 
 def load_data(path: str, image) -> torch.Tensor:  # 260, 260, 200
@@ -141,6 +188,22 @@ def load_data(path: str, image) -> torch.Tensor:  # 260, 260, 200
     if image:
         # normalize for only images, not labels/masks
         return normalise(data)
+    return data
+
+
+def define_resolution(data, image: bool, scale_factor):
+    data = [load_data(img, image) for img in data]
+
+    # F.interpolate has to be of batch, channel, D, H, W, so we stack below
+    if scale_factor != 1:
+        mode = 'trilinear' if image else 'nearest'
+        align_corners = True if mode == 'trilinear' else None
+        data = torch.stack(data).unsqueeze(0).permute(1, 0, 2, 3, 4)
+        data = F.interpolate(data, scale_factor=scale_factor, mode=mode, align_corners=align_corners)
+
+        # unstack and return list
+        data = [t.squeeze(0).squeeze(0) for t in torch.split(tensor=data, split_size_or_sections=1, dim=0)]
+        return data
     return data
 
 
@@ -181,3 +244,37 @@ def generate_time_sequence(time_points, random_indexes):
     time_seq = np.unique(time_seq)
     return time_seq
 
+
+if __name__ == "__main__":
+    I0 = torch.rand(260, 260, 200)
+    num_patches_train = 2000
+    num_patches_val = 1000
+    patch_size = [12 for _ in range(len(I0.shape))]
+    batch_size = 48
+    data_module = InrMorphDataModule(
+        patch_size=[12, 12, 12],
+        num_patches=2000,
+        val_split=0.3,
+        batch_size=1,
+        image_shape=I0.shape
+    )
+    data_module.dataloaders()
+
+    # data = torch.rand(260, 260, 200)
+    datapath = "/srv/thetis2/as2614/inrmorph/data/AD/005_S_0814/resampled/"
+    data = sorted(glob.glob(datapath + "I*.nii"))
+    datamask = sorted(glob.glob(datapath + "/masks/I*.nii.gz"))
+    data = define_resolution(data, image=True, scale_factor=0.5)
+    print(len(data), data[0].shape)
+
+    train_generator = DataLoader(dataset=CoordsPatch(patch_size=patch_size,
+                                                     num_patches=num_patches_train, img_shape=I0.shape),
+                                 batch_size=batch_size, shuffle=True, num_workers=8, drop_last=True)
+    val_generator = DataLoader(dataset=CoordsPatch(patch_size=patch_size,
+                                                   num_patches=num_patches_val, img_shape=I0.shape),
+                               batch_size=batch_size,
+                               shuffle=False, num_workers=8, drop_last=True)
+    print("train is ", len(train_generator), "val is", len(val_generator))
+    # print first data in train_generator
+    print(next(iter(train_generator))[0].shape)
+#
