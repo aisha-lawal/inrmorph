@@ -1,10 +1,9 @@
 import glob
+import torch
 from lightning import Trainer
-from torch.utils.data import DataLoader
-from config import *
-from data_modules.inrmorph import CoordsPatch, InrMorphDataModule, define_resolution
+from config import save_logger_name, arg, wandb_setup, device
+from data_modules.inrmorph import InrMorphDataModule, define_resolution
 from models.inrmorph import InrMorph
-from data_modules.inrmorph import load_data
 
 
 def main():
