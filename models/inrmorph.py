@@ -1,5 +1,6 @@
-from typing import Any
+from typing import Any, List
 import torch.nn as nn
+from torch import Tensor
 
 from config import set_seed, device
 import numpy as np
@@ -12,12 +13,40 @@ import lightning as pl
 
 
 class InrMorph(pl.LightningModule):
-    def __init__(self, *args: Any):
+    def __init__(self,
+                 I0: Tensor,
+                 It: List,
+                 patch_size: List,
+                 spatial_reg_weight: float,
+                 temporal_reg_weight: float,
+                 monotonicity_reg_weight: float,
+                 batch_size: int,
+                 network_type: str,
+                 similarity_metric: str,
+                 gradient_type: str,
+                 loss_type: str,
+                 time: Tensor,
+                 lr: float,
+                 weight_decay: float,
+                 ) -> None:
         super().__init__()
-        (self.I0, self.It, self.patch_size, self.spatial_reg_weight, self.temporal_reg_weight,
-         self.monotonicity_reg_weight,
-         self.batch_size, self.network_type, self.similarity_metric, self.gradient_type, self.loss_type,
-         self.time) = args
+
+
+        self.I0 = I0
+        self.It = It
+        self.patch_size = patch_size
+        self.spatial_reg_weight = spatial_reg_weight
+        self.temporal_reg_weight = temporal_reg_weight
+        self.monotonicity_reg_weight = monotonicity_reg_weight
+        self.batch_size = batch_size
+        self.network_type = network_type
+        self.similarity_metric = similarity_metric
+        self.gradient_type = gradient_type
+        self.loss_type = loss_type
+        self.time = time
+        self.lr = lr
+        self.weight_decay = weight_decay
+
         self.ndims = len(self.patch_size)
         self.nsamples = len(self.It)
         self.time_features = 64
@@ -29,8 +58,7 @@ class InrMorph(pl.LightningModule):
         self.seed = 42
         # self.time = self.time.clone().detach().requires_grad_(True)
         self.time = self.time.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand(-1, self.batch_size,
-                                                                                             *self.patch_size).clone().detach().requires_grad_(
-            True)
+                        *self.patch_size).clone().detach().requires_grad_(True)
         self.first_omega = 30
         self.hidden_omega = 30
         self.init_method = "sine"
@@ -68,13 +96,10 @@ class InrMorph(pl.LightningModule):
     def forward(self, coords):
 
         displacement_t = []  # len samples
-
         for time in self.time:  # remains as self.time
             t_n = time.view(self.batch_size, coords.shape[1], 1)
-
             t_n = self.t_mapping(t_n)  # concat this with every layer.
             phi_dims = self.mapping(coords, t_n)  # single layer
-
             displacement_t.append(phi_dims)
 
         return displacement_t
@@ -98,7 +123,8 @@ class InrMorph(pl.LightningModule):
         displacement_t = self.forward(coords)
         warped_t, fixed, deformation_field_t = self.compute_transform(coords, displacement_t)
 
-        ncc, spatial_smoothness, loss, mono_loss, temporal_smoothness = self.compute_loss(warped_t, fixed, deformation_field_t, coords)
+        ncc, spatial_smoothness, loss, mono_loss, temporal_smoothness = self.compute_loss(warped_t,
+                                                                                          fixed, deformation_field_t, coords)
 
         metrics = {
             f"{process}_ncc": ncc,
@@ -125,7 +151,7 @@ class InrMorph(pl.LightningModule):
         return displacement
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=4e-5)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         return optimizer
 
     def compute_transform(self, coords, displacement):
@@ -216,7 +242,6 @@ class InrMorph(pl.LightningModule):
         """
         nominator = ((fixed_pixels - fixed_pixels.mean()) *
                      (warped_pixels - warped_pixels.mean())).mean()
-
         denominator = fixed_pixels.std() * warped_pixels.std()
 
         cc = (nominator + 1e-6) / (denominator + 1e-6)

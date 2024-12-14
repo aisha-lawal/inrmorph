@@ -16,32 +16,63 @@ def main():
         image_shape=I0.shape
     )
     train_generator, val_generator = data_module.dataloaders()
-    model = InrMorph(I0, It, patch_size, spatial_reg, temporal_reg, monotonicity_reg, args.batch_size,
-                     args.network_type,
-                     args.similarity_metric, args.gradient_type, args.loss_type, normalised_time_points)
+    model = InrMorph(
+        I0=I0,
+        It=It,
+        patch_size=args.patch_size,
+        spatial_reg_weight=args.spatial_reg,
+        temporal_reg_weight=args.temporal_reg,
+        monotonicity_reg_weight=args.monotonicity_reg,
+        batch_size=args.batch_size,
+        network_type=args.network_type,
+        similarity_metric=args.similarity_metric,
+        gradient_type=args.gradient_type,
+        loss_type=args.loss_type,
+        time=normalised_time_points,
+        lr=args.lr,
+        weight_decay=args.weight_decay
+    )
 
-    trainer = Trainer(fast_dev_run=args.fast_dev_run, max_epochs=args.num_epochs,
-                      log_every_n_steps=num_steps_per_epoch // 2, accelerator="auto",
-                      devices="auto",
-                      strategy="auto", callbacks=[model_checkpoint], logger=logger, precision="32")
+    trainer = Trainer(
+        fast_dev_run=args.fast_dev_run,
+        max_epochs=args.num_epochs,
+        log_every_n_steps=num_steps_per_epoch // 2,
+        accelerator="auto",
+        devices="auto",
+        strategy="auto",
+        callbacks=[model_checkpoint],
+        logger=logger,
+        precision="32")
+
+    #log params to wandb
+    model_params = dict(
+        patch_size=patch_size,
+        num_patches=args.num_patches,
+        val_split=args.val_split,
+        batch_size=args.batch_size,
+        network_type=args.network_type,
+        gradient_type=args.gradient_type,
+        monotonicity_reg=args.monotonicity_reg,
+    )
+    logger.log_hyperparams(model_params)
 
     print("######################Training##################")
     logger.watch(model=model, log_freq=10, log_graph=True)
     trainer.fit(model=model, train_dataloaders=train_generator, val_dataloaders=val_generator)
-
-    print(f"Allocated: {torch.cuda.memory_allocated() / (1024 * 1024)} MB")
-    print(f"Cached: {torch.cuda.memory_reserved() / (1024 * 1024)} MB")
     save_logger_name(args.logger_name)
 
 
 if __name__ == "__main__":
     args = arg()
     model_checkpoint, _, logger = wandb_setup()
+
+    """
+    Generating data resolution
+    """
     print("data path: ", args.datapath)
     datapath = args.datapath + args.subjectID + "/resampled/"
     data = sorted(glob.glob(datapath + "I*.nii"))
     datamask = sorted(glob.glob(datapath + "/masks/I*.nii.gz"))
-
     images = define_resolution(data=data, image=True, scale_factor=args.scale_factor)
     masks = define_resolution(data=datamask, image=False, scale_factor=args.scale_factor)
 
@@ -60,8 +91,4 @@ if __name__ == "__main__":
 
     print("######################Registering across time: {} in years##################".format(args.time))
     patch_size = [args.patch_size for _ in range(len(I0.shape))]
-    # spatial_reg = 0.01 #for siren
-    spatial_reg = 1
-    monotonicity_reg = 0.15
-    temporal_reg = 0.001
     main()

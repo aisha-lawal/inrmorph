@@ -78,13 +78,18 @@ def arg():
 
     parser.add_argument("--spatial_reg", type=float,
                         dest="spatial_reg",
-                        default=0.1,
-                        help="weight for spatial regulatization")
+                        default=1,
+                        help="weight for spatial regularization")
 
     parser.add_argument("--temporal_reg", type=float,
                         dest="temporal_reg",
-                        default=0.1,
-                        help="weight for temporal regulatization")
+                        default=0.001,
+                        help="weight for temporal regularization")
+
+    parser.add_argument("--monotonicity_reg", type=float,
+                        dest="monotonicity_reg",
+                        default=0.001,
+                        help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
                         dest="subjectID",
@@ -122,6 +127,16 @@ def arg():
                         dest="val_split",
                         default=0.3,
                         help="val split")
+
+    parser.add_argument("--lr", type=float,
+                        dest="lr",
+                        default=1e-4,
+                        help="learning rate")
+
+    parser.add_argument("--weight_decay", type=float,
+                        dest="weight_decay",
+                        default=1e-4,
+                        help="weight decay")
 
     parser.add_argument("--scale_factor", type=float,
                         dest="scale_factor",
