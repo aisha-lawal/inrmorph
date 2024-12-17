@@ -140,9 +140,8 @@ class SmoothDeformationField:
     Input: shape of [batch_size, flattened_patchsize, ndims]
     """
 
-    def __init__(self, loss_type, gradient_type, patch_size, batch_size):
+    def __init__(self, gradient_type, patch_size, batch_size):
 
-        self.loss_type = loss_type
         self.patch_size = patch_size
         self.batch_size = batch_size
         self.gradient_type = gradient_type
@@ -152,25 +151,26 @@ class SmoothDeformationField:
         if self.gradient_type == "analytic_gradient":
             jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
 
-            # jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
-            # can also compute frobenius norm of jacobian matrix i.e L2 norm in matrix form. result should be same in this case
-            l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2)
-            smoothness_loss = l2.mean()  # scalar
-            return smoothness_loss, torch.det(jacobian_matrix)
+            # can also compute frobenius norm of jacobian matrix i.e L2 norm in matrix form.
+            l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2).sum(dim=1).mean()
+            # smoothness_loss = torch.sum(jacobian_matrix **2, dim=[1, 2, 3]).mean()
+            return l2, torch.det(jacobian_matrix)
 
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
-            spacing = 1
-            x = field[:, :, :, :, 0]
-            y = field[:, :, :, :, 1]
-            z = field[:, :, :, :, 2]
-
-            gradients_x = torch.gradient(x, dim=(1, 2, 3), spacing=1)
-            gradients_y = torch.gradient(y, dim=(1, 2, 3), spacing=1)
-            gradients_z = torch.gradient(z, dim=(1, 2, 3), spacing=1)
-
-            smoothness_loss = sum((grad ** 2).mean() for grad in gradients_x + gradients_y + gradients_z)
-
+            # spacing = 1
+            # x = field[:, :, :, :, 0]
+            # y = field[:, :, :, :, 1]
+            # z = field[:, :, :, :, 2]
+            #
+            # gradients_x = torch.gradient(x, dim=(1, 2, 3), spacing=spacing)
+            # gradients_y = torch.gradient(y, dim=(1, 2, 3), spacing=spacing)
+            # gradients_z = torch.gradient(z, dim=(1, 2, 3), spacing=spacing)
+            # smoothness_loss = sum((grad ** 2).mean() for grad in gradients_x + gradients_y + gradients_z)
+            fieldx = torch.sum((field[:, 1:, :, :, :] - field[:, :-1, :, :, :]) ** 2, dim=(1, 2, 3, 4)).mean()
+            fieldy = torch.sum((field[:, :, 1:, :, :] - field[:, :, :-1, :, :]) ** 2, dim=(1, 2, 3, 4)).mean()
+            fieldz = torch.sum((field[:, :, :, 1:, :] - field[:, :, :, :-1, :]) ** 2, dim=(1, 2, 3, 4)).mean()
+            smoothness_loss= fieldx + fieldy + fieldz
             return smoothness_loss
 
     def temporal(self, batch_size, patch_size, field_t, time):
@@ -181,14 +181,20 @@ class SmoothDeformationField:
         dims = len(patch_size)
         field_t = [field.view(batch_size, *patch_size, dims) for field in field_t]
         field_t = torch.stack(field_t, dim=0)
-        field_dt = torch.autograd.grad(
-            outputs=field_t,
-            inputs=time,
-            grad_outputs=torch.ones_like(field_t),
-            create_graph=True,
-        )[0]
-        temporal_smoothness = (field_dt ** 2).mean(dim=0).sum()
-        return temporal_smoothness
+        if self.gradient_type == "analytic_gradient":
+            dfield_dt = torch.autograd.grad(
+                outputs=field_t,
+                inputs=time,
+                grad_outputs=torch.ones_like(field_t),
+                create_graph=True,
+            )[0]
+        else:
+            #for numerical approximation
+            dfield_dt = (field_t[1:] - field_t[:-1])/ (time[1:] - time[:-1])
+
+        temporal_smoothness = torch.sum(dfield_dt**2, dim=[2, 3, 4, 5])
+        temporal_smoothness = temporal_smoothness.mean(dim=1) #batch_size
+        return temporal_smoothness.mean()
 
 
 class GradientComputation:

@@ -1,7 +1,6 @@
 from typing import Any, List
 import torch.nn as nn
 from torch import Tensor
-
 from config import set_seed, device
 import numpy as np
 import torch
@@ -10,7 +9,6 @@ from models.relu import ReLU
 from models.siren import Siren
 from utils import SpatialTransform, SmoothDeformationField, MonotonicConstraint
 import lightning as pl
-
 
 class InrMorph(pl.LightningModule):
     def __init__(self,
@@ -28,10 +26,12 @@ class InrMorph(pl.LightningModule):
                  time: Tensor,
                  lr: float,
                  weight_decay: float,
+                 omega_0: float,
+                 hidden_layers: int,
+                 time_features: int,
+                 hidden_features: int,
                  ) -> None:
         super().__init__()
-
-
         self.I0 = I0
         self.It = It
         self.patch_size = patch_size
@@ -49,28 +49,28 @@ class InrMorph(pl.LightningModule):
 
         self.ndims = len(self.patch_size)
         self.nsamples = len(self.It)
-        self.time_features = 64
+        self.time_features = time_features
         self.in_features = self.ndims
         self.out_features = self.ndims
-        self.hidden_features = 256
-        self.hidden_layers = 5
-        self.omega = 30
+        self.hidden_features = hidden_features
+        self.hidden_layers = hidden_layers
+        self.omega_0 = omega_0
         self.seed = 42
         # self.time = self.time.clone().detach().requires_grad_(True)
-        self.time = self.time.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand(-1, self.batch_size,
-                        *self.patch_size).clone().detach().requires_grad_(True)
+        self.time = self.time.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand(-1, self.batch_size,
+                        *self.patch_size, -1).clone().detach().requires_grad_(True)
         self.first_omega = 30
         self.hidden_omega = 30
         self.init_method = "sine"
         self.init_gain = 1
-        self.fbs = 10  # k for bias initialization according to paper optimal
+        self.fbs = 5  # k for bias initialization according to paper optimal
         self.set_seed = set_seed(self.seed)
         assert self.loss_type in ["L1", "L2"], "Invalid loss type"
         assert self.gradient_type in ["finite_difference", "analytic_gradient"], "Invalid computation type"
         assert self.network_type in ["siren", "relu", "finer"], "Invalid network type"
         self.transform = SpatialTransform()
         self.t_mapping = self.time_mapping(self.time_features)
-        self.smoothness = SmoothDeformationField(self.loss_type, self.gradient_type, self.patch_size,
+        self.smoothness = SmoothDeformationField(self.gradient_type, self.patch_size,
                                                  self.batch_size)
 
         self.monotonic_constraint = MonotonicConstraint(self.patch_size, self.batch_size, self.time)
@@ -86,7 +86,7 @@ class InrMorph(pl.LightningModule):
 
             self.mapping = Siren(layers=[self.in_features, *[self.hidden_features + (self.time_features * i) for i in
                                                              range(self.hidden_layers)], self.out_features],
-                                 omega=self.omega, time_features=self.time_features)
+                                 omega_0=self.omega_0, time_features=self.time_features)
 
         else:
             self.mapping = ReLU(layers=[self.in_features, *[self.hidden_features + i * (self.time_features * 2) for
@@ -96,7 +96,7 @@ class InrMorph(pl.LightningModule):
     def forward(self, coords):
 
         displacement_t = []  # len samples
-        for time in self.time:  # remains as self.time
+        for time in self.time:
             t_n = time.view(self.batch_size, coords.shape[1], 1)
             t_n = self.t_mapping(t_n)  # concat this with every layer.
             phi_dims = self.mapping(coords, t_n)  # single layer
@@ -151,7 +151,9 @@ class InrMorph(pl.LightningModule):
         return displacement
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        # optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+
         return optimizer
 
     def compute_transform(self, coords, displacement):
@@ -168,7 +170,7 @@ class InrMorph(pl.LightningModule):
         deformation_field_t = []
         warped_t = []
         fixed = self.transform.trilinear_interpolation(coords=coords, img=self.I0).view(self.batch_size,
-                                                                                        *self.patch_size)  # for arrange as patch
+                                                                                        *self.patch_size)  # to reshape as a patch
 
         for idx, t in enumerate(self.time.unique()):
             deformation_field_t.append(torch.add(displacement[idx],
@@ -205,7 +207,6 @@ class InrMorph(pl.LightningModule):
                 dx = deformation_field_t[idx][:, :, 0] - coords[:, :, 0]  # shape [batch_size, flattenedpatch, ndims]
                 dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
                 dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
-
                 similarity = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
             else:
                 ncc = self.ncc_loss(warped_t[idx - 1], fixed)
@@ -221,8 +222,9 @@ class InrMorph(pl.LightningModule):
             spatial_smoothness += spatial_smoothness_t
             total_loss += (similarity + spatial_smoothness_t)
 
-        temporal_smoothness = self.smoothness.temporal(self.batch_size, self.patch_size, deformation_field_t,
-                                                       self.time) * self.temporal_reg_weight
+        temporal_smoothness = 0
+        # temporal_smoothness = self.smoothness.temporal(self.batch_size, self.patch_size, deformation_field_t,
+        #                                                self.time) * self.temporal_reg_weight
         total_loss += temporal_smoothness
         if jac_det != None:
             mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight

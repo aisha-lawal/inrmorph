@@ -18,7 +18,7 @@ def main():
     model = InrMorph(
         I0=I0,
         It=It,
-        patch_size=args.patch_size,
+        patch_size=patch_size,
         spatial_reg_weight=args.spatial_reg,
         temporal_reg_weight=args.temporal_reg,
         monotonicity_reg_weight=args.monotonicity_reg,
@@ -29,13 +29,17 @@ def main():
         loss_type=args.loss_type,
         time=normalised_time_points,
         lr=args.lr,
-        weight_decay=args.weight_decay
+        weight_decay=args.weight_decay,
+        omega_0=args.omega_0,
+        hidden_layers=args.hidden_layers,
+        time_features=args.time_features,
+        hidden_features=args.hidden_features,
     )
-
     trainer = Trainer(
-        fast_dev_run=args.fast_dev_run,
+        # fast_dev_run=args.fast_dev_run,
+        fast_dev_run=False,
         max_epochs=args.num_epochs,
-        log_every_n_steps=num_steps_per_epoch // 2,
+        log_every_n_steps=num_steps_per_epoch,
         accelerator="auto",
         devices="auto",
         strategy="auto",
@@ -52,6 +56,14 @@ def main():
         network_type=args.network_type,
         gradient_type=args.gradient_type,
         monotonicity_reg=args.monotonicity_reg,
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+        spatial_reg=args.spatial_reg,
+        temporal_reg=args.temporal_reg,
+        omega_0=args.omega_0,
+        hidden_layers=args.hidden_layers,
+        time_features=args.time_features,
+        hidden_features=args.hidden_features,
     )
     logger.log_hyperparams(model_params)
 
@@ -63,8 +75,7 @@ def main():
 
 if __name__ == "__main__":
     args = arg()
-    model_checkpoint, _, logger = wandb_setup()
-
+    model_checkpoint, logger = wandb_setup()
     """
     Generating data resolution
     """

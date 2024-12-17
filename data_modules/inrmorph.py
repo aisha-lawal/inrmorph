@@ -2,17 +2,12 @@ import glob
 from datetime import datetime
 import random
 from typing import List
-
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn import functional as F
 import nibabel as nib
-
 from config import device, set_seed
-
-
-# device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
 # training is patchwise, val/test is full image!
