@@ -158,19 +158,19 @@ class SmoothDeformationField:
 
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
-            # spacing = 1
-            # x = field[:, :, :, :, 0]
-            # y = field[:, :, :, :, 1]
-            # z = field[:, :, :, :, 2]
-            #
-            # gradients_x = torch.gradient(x, dim=(1, 2, 3), spacing=spacing)
-            # gradients_y = torch.gradient(y, dim=(1, 2, 3), spacing=spacing)
-            # gradients_z = torch.gradient(z, dim=(1, 2, 3), spacing=spacing)
-            # smoothness_loss = sum((grad ** 2).mean() for grad in gradients_x + gradients_y + gradients_z)
-            fieldx = torch.sum((field[:, 1:, :, :, :] - field[:, :-1, :, :, :]) ** 2, dim=(1, 2, 3, 4)).mean()
-            fieldy = torch.sum((field[:, :, 1:, :, :] - field[:, :, :-1, :, :]) ** 2, dim=(1, 2, 3, 4)).mean()
-            fieldz = torch.sum((field[:, :, :, 1:, :] - field[:, :, :, :-1, :]) ** 2, dim=(1, 2, 3, 4)).mean()
-            smoothness_loss= fieldx + fieldy + fieldz
+            spacing = 1
+            x = field[:, :, :, :, 0]
+            y = field[:, :, :, :, 1]
+            z = field[:, :, :, :, 2]
+
+            gradients_x = torch.gradient(x, dim=(1, 2, 3), spacing=spacing)
+            gradients_y = torch.gradient(y, dim=(1, 2, 3), spacing=spacing)
+            gradients_z = torch.gradient(z, dim=(1, 2, 3), spacing=spacing)
+            smoothness_loss = sum((grad ** 2).mean() for grad in gradients_x + gradients_y + gradients_z)
+            # fieldx = torch.sum((field[:, 1:, :, :, :] - field[:, :-1, :, :, :]) ** 2, dim=(1, 2, 3, 4)).mean()
+            # fieldy = torch.sum((field[:, :, 1:, :, :] - field[:, :, :-1, :, :]) ** 2, dim=(1, 2, 3, 4)).mean()
+            # fieldz = torch.sum((field[:, :, :, 1:, :] - field[:, :, :, :-1, :]) ** 2, dim=(1, 2, 3, 4)).mean()
+            # smoothness_loss= fieldx + fieldy + fieldz
             return smoothness_loss
 
     def temporal(self, batch_size, patch_size, field_t, time):
@@ -262,27 +262,31 @@ class MonotonicConstraint:
     Compute the d|J|/dt and penalize non-monotonicity
     """
 
-    def __init__(self, patch_size, batch_size, time):
+    def __init__(self, patch_size, batch_size, time, gradient_type):
         self.patch_size = patch_size
         self.batch_size = batch_size
         self.time = time
         self.epsilon = 1e-4
+        self.gradient_type = gradient_type
 
     def forward(self, jacobian_determinants):
         jacobian_determinants = jacobian_determinants.view(len(self.time.unique()), self.batch_size, *self.patch_size)
-        voxelwise_derivatives = torch.autograd.grad(
-            outputs=jacobian_determinants,
-            inputs=self.time,
-            grad_outputs=torch.ones_like(jacobian_determinants),
-            create_graph=True,
-        )[0]
+        if self.gradient_type == "analytic_gradient":
+            jacobian_determinants = jacobian_determinants.unsqueeze(-1)
+            voxelwise_derivatives = torch.autograd.grad(
+                outputs=jacobian_determinants,
+                inputs=self.time,
+                grad_outputs=torch.ones_like(jacobian_determinants),
+                create_graph=True,
+            )[0]
+            voxelwise_derivatives = voxelwise_derivatives.squeeze(-1)
+        else:
+            ## using finite difference, check this later because of batchsize dimension
+            dj = jacobian_determinants[1:] - jacobian_determinants[:-1]
+            dt = self.time[1:] - self.time[:-1]
+            voxelwise_derivatives = dj / dt
         # mono_loss = torch.min(torch.relu(voxelwise_derivatives - self.epsilon).sum(), torch.relu(-voxelwise_derivatives - self.epsilon).sum())/10000
-        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum()) / 10000
-
-        ## using finite difference, check this later because of batchsize dimension
-        # dj = jacobian_determinants[1:] - jacobian_determinants[:-1]
-        # dt = self.time[1:] - self.time[:-1]
-        # voxelwise_derivatives = dj / dt
+        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())
         return mono_loss
 
 

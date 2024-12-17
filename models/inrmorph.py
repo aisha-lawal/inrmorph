@@ -73,7 +73,7 @@ class InrMorph(pl.LightningModule):
         self.smoothness = SmoothDeformationField(self.gradient_type, self.patch_size,
                                                  self.batch_size)
 
-        self.monotonic_constraint = MonotonicConstraint(self.patch_size, self.batch_size, self.time)
+        self.monotonic_constraint = MonotonicConstraint(self.patch_size, self.batch_size, self.time, self.gradient_type)
 
         if self.network_type == "finer":
 
@@ -220,14 +220,18 @@ class InrMorph(pl.LightningModule):
 
             spatial_smoothness_t = spatial_smoothness_t * self.spatial_reg_weight
             spatial_smoothness += spatial_smoothness_t
-            total_loss += (similarity + spatial_smoothness_t)
+            # total_loss += (similarity + spatial_smoothness_t)
 
         temporal_smoothness = 0
+        spatial_smoothness = 0
+        similarity = 0
         # temporal_smoothness = self.smoothness.temporal(self.batch_size, self.patch_size, deformation_field_t,
         #                                                self.time) * self.temporal_reg_weight
-        total_loss += temporal_smoothness
+        # total_loss += temporal_smoothness
         if jac_det != None:
-            mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
+            # mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
+            # total_loss += mono_loss
+            mono_loss = self.monotonic_constraint.forward(jac_det)
             total_loss += mono_loss
 
         print(
