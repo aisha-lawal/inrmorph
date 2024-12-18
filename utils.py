@@ -154,7 +154,9 @@ class SmoothDeformationField:
             # can also compute frobenius norm of jacobian matrix i.e L2 norm in matrix form.
             l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2).sum(dim=1).mean()
             # smoothness_loss = torch.sum(jacobian_matrix **2, dim=[1, 2, 3]).mean()
-            return l2, torch.det(jacobian_matrix)
+            #compute jacobian determinant component
+            jacobian_determinants = self.compute_jacobian_determinant(jacobian_matrix)
+            return l2, jacobian_determinants
 
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
@@ -196,6 +198,37 @@ class SmoothDeformationField:
         temporal_smoothness = temporal_smoothness.mean(dim=1) #batch_size
         # return temporal_smoothness.mean() similarity not averaged
         return temporal_smoothness
+
+    
+    def compute_jacobian_determinant(self, jacobian_matrix):
+        #shape of [batch_size, flattened_patch_size, ndims, ndims]
+        # for 3x3 using det(A)=a(ei−fh)−b(di−fg)+c(dh−eg); (i.e compute 2D det and multiply with held out col/row)
+        # a = jacobian_matrix[:, :, 0, 0]
+        # b = jacobian_matrix[:, :, 0, 1]
+        # c = jacobian_matrix[:, :, 0, 2]
+        # d = jacobian_matrix[:, :, 1, 0]
+        # e = jacobian_matrix[:, :, 1, 1]
+        # f = jacobian_matrix[:, :, 1, 2]
+        # g = jacobian_matrix[:, :, 2, 0]
+        # h = jacobian_matrix[:, :, 2, 1]
+        # i = jacobian_matrix[:, :, 2, 2]
+        # determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+
+        #make above tidy
+        #first second and third row i.e a,b,c above
+        dx = jacobian_matrix[..., 0, :]
+        dy = jacobian_matrix[..., 1, :]
+        dz = jacobian_matrix[..., 2, :]
+
+        det_a = dx[..., 0] * (dy[..., 1] * dz[..., 2] - dy[..., 2] * dz[..., 1])
+        det_b = dx[..., 1] * (dy[..., 0] * dz[..., 2] - dy[..., 2] * dz[..., 0])
+        det_c = dx[..., 2] * (dy[..., 0] * dz[..., 1] - dy[..., 1] * dz[..., 0])
+        determinant = det_a - det_b + det_c
+
+        # return torch.det(jacobian_matrix)
+        return determinant
+
+
 
 
 class GradientComputation:

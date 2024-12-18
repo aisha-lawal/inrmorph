@@ -1,7 +1,7 @@
-from typing import Any, List
+from typing import List
 import torch.nn as nn
 from torch import Tensor
-from config import set_seed, device
+from config import device
 import numpy as np
 import torch
 from models.finer import Finer
@@ -64,7 +64,6 @@ class InrMorph(pl.LightningModule):
         self.init_method = "sine"
         self.init_gain = 1
         self.fbs = 5  # k for bias initialization according to paper optimal
-        self.set_seed = set_seed(self.seed)
         assert self.loss_type in ["L1", "L2"], "Invalid loss type"
         assert self.gradient_type in ["finite_difference", "analytic_gradient"], "Invalid computation type"
         assert self.network_type in ["siren", "relu", "finer"], "Invalid network type"
