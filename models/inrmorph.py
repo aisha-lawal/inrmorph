@@ -207,7 +207,7 @@ class InrMorph(pl.LightningModule):
                 dx = deformation_field_t[idx][:, :, 0] - coords[:, :, 0]  # shape [batch_size, flattenedpatch, ndims]
                 dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
                 dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
-                similarity = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
+                similarity += (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
             else:
                 ncc = self.ncc_loss(warped_t[idx - 1], fixed)
                 similarity += ncc
@@ -220,19 +220,18 @@ class InrMorph(pl.LightningModule):
 
             spatial_smoothness_t = spatial_smoothness_t * self.spatial_reg_weight
             spatial_smoothness += spatial_smoothness_t
-            # total_loss += (similarity + spatial_smoothness_t)
+            total_loss += (similarity + spatial_smoothness_t)
+            # total_loss += similarity
 
-        temporal_smoothness = 0
-        spatial_smoothness = 0
-        similarity = 0
-        # temporal_smoothness = self.smoothness.temporal(self.batch_size, self.patch_size, deformation_field_t,
-        #                                                self.time) * self.temporal_reg_weight
-        # total_loss += temporal_smoothness
+        # temporal_smoothness = 0
+        temporal_smoothness = self.smoothness.temporal(self.batch_size, self.patch_size, deformation_field_t,
+                                                       self.time) * self.temporal_reg_weight
+        total_loss += temporal_smoothness
         if jac_det != None:
-            # mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
-            # total_loss += mono_loss
-            mono_loss = self.monotonic_constraint.forward(jac_det)
+            mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
             total_loss += mono_loss
+            # mono_loss = self.monotonic_constraint.forward(jac_det)
+            # total_loss += mono_loss
 
         print(
             "NCC: {}, Spatial smoothness: {}, Total loss: {}, Mono loss: {}, Temporal smoothness: {}".format(similarity, spatial_smoothness, total_loss,

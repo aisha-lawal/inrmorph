@@ -167,9 +167,9 @@ class SmoothDeformationField:
             gradients_y = torch.gradient(y, dim=(1, 2, 3), spacing=spacing)
             gradients_z = torch.gradient(z, dim=(1, 2, 3), spacing=spacing)
             smoothness_loss = sum((grad ** 2).mean() for grad in gradients_x + gradients_y + gradients_z)
-            # fieldx = torch.sum((field[:, 1:, :, :, :] - field[:, :-1, :, :, :]) ** 2, dim=(1, 2, 3, 4)).mean()
-            # fieldy = torch.sum((field[:, :, 1:, :, :] - field[:, :, :-1, :, :]) ** 2, dim=(1, 2, 3, 4)).mean()
-            # fieldz = torch.sum((field[:, :, :, 1:, :] - field[:, :, :, :-1, :]) ** 2, dim=(1, 2, 3, 4)).mean()
+            # fieldx = torch.sum((field[:, 1:, :-1, :-1, :] - field[:, :-1, :-1, :-1, :]) ** 2, dim=(1, 2, 3, 4)).mean()
+            # fieldy = torch.sum((field[:, :-1, 1:, :-1, :] - field[:, :-1, :-1, :-1, :]) ** 2, dim=(1, 2, 3, 4)).mean()
+            # fieldz = torch.sum((field[:, :-1, :-1, 1:, :] - field[:, :-1, :-1, :-1, :]) ** 2, dim=(1, 2, 3, 4)).mean()
             # smoothness_loss= fieldx + fieldy + fieldz
             return smoothness_loss
 
@@ -194,7 +194,8 @@ class SmoothDeformationField:
 
         temporal_smoothness = torch.sum(dfield_dt**2, dim=[2, 3, 4, 5])
         temporal_smoothness = temporal_smoothness.mean(dim=1) #batch_size
-        return temporal_smoothness.mean()
+        # return temporal_smoothness.mean() similarity not averaged
+        return temporal_smoothness
 
 
 class GradientComputation:
@@ -286,7 +287,7 @@ class MonotonicConstraint:
             dt = self.time[1:] - self.time[:-1]
             voxelwise_derivatives = dj / dt
         # mono_loss = torch.min(torch.relu(voxelwise_derivatives - self.epsilon).sum(), torch.relu(-voxelwise_derivatives - self.epsilon).sum())/10000
-        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())
+        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/10000
         return mono_loss
 
 

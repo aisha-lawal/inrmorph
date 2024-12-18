@@ -56,6 +56,7 @@ def main():
         network_type=args.network_type,
         gradient_type=args.gradient_type,
         monotonicity_reg=args.monotonicity_reg,
+        num_epochs=args.num_epochs,
         lr=args.lr,
         weight_decay=args.weight_decay,
         spatial_reg=args.spatial_reg,
