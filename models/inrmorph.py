@@ -142,7 +142,7 @@ class InrMorph(pl.LightningModule):
         coords = coords.unsqueeze(0)
         batch_size = 1
         tm = time.unsqueeze(0).unsqueeze(0)
-        tm = tm.expand(batch_size, coords.shape[1], 1)
+        tm = tm.view(batch_size, coords.shape[1], 1)
 
         tm = self.t_mapping(tm)
         displacement = self.mapping(coords, tm)
@@ -225,6 +225,7 @@ class InrMorph(pl.LightningModule):
         # temporal_smoothness = 0
         temporal_smoothness = self.smoothness.temporal(self.batch_size, self.patch_size, deformation_field_t,
                                                        self.time) * self.temporal_reg_weight
+
         total_loss += temporal_smoothness
         if jac_det != None:
             mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight

@@ -58,7 +58,7 @@ class CoordsPatch(Dataset):
         self.coords = define_coords(self.img_shape)
         self.dx = torch.div(2, torch.tensor(self.coords.shape[:-1]))
         self.num_patches = num_patches  # how many random patches to sample
-        self.set_seed = set_seed(42)
+        # self.set_seed = set_seed(42)
 
         self.patch_size = np.ceil(np.array(patch_size) / 2).astype(np.int16)
         patch_dx_dims = torch.tensor(self.patch_size) * self.dx
@@ -122,7 +122,9 @@ class InrMorphDataModule:
         train_size = len(dataset) - val_size
 
         # split patches based on val porportion
-        train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=self.generator())
+        # train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=self.generator()) #for reproducibility
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
         train_loader = DataLoader(dataset=train_dataset, batch_size=self.batch_size, shuffle=True,
                                   num_workers=self.num_workers, drop_last=True)
         val_loader = DataLoader(dataset=val_dataset, batch_size=self.batch_size, shuffle=True,

@@ -10,7 +10,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '5'
+os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -80,17 +80,17 @@ def arg():
 
     parser.add_argument("--spatial_reg", type=float,
                         dest="spatial_reg",
-                        default=1000,
+                        default=0.01,
                         help="weight for spatial regularization")
 
     parser.add_argument("--temporal_reg", type=float,
                         dest="temporal_reg",
-                        default=0.01,
+                        default=1.0,
                         help="weight for temporal regularization")
 
     parser.add_argument("--monotonicity_reg", type=float,
                         dest="monotonicity_reg",
-                        default=1,
+                        default=1.0,
                         help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
@@ -117,7 +117,7 @@ def arg():
 
     parser.add_argument("--batch_size", type=int,
                         dest="batch_size",
-                        default=48,
+                        default=48, #for FD and 12 for AD
                         help="batch size")
 
     parser.add_argument("--patch_size", type=int,
@@ -172,7 +172,7 @@ def arg():
 
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
-                        default=200,
+                        default=80,
                         help="total number of epochs")
 
     parser.add_argument("--gradient_type", type=str,

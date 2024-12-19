@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+from sympy.ntheory.factor_ import smoothness_p
+
 from config import device
 
 
@@ -152,11 +154,14 @@ class SmoothDeformationField:
             jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
 
             # can also compute frobenius norm of jacobian matrix i.e L2 norm in matrix form.
-            l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2).sum(dim=1).mean()
-            # smoothness_loss = torch.sum(jacobian_matrix **2, dim=[1, 2, 3]).mean()
+            l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2).mean(dim=1) #mean across spatial dim
+            # l2 = torch.sum(jacobian_matrix **2, dim=[1, 2, 3])
+            # l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2).sum(dim=1)
+
+            smoothness_loss = l2.mean() #batch mean
             #compute jacobian determinant component
             jacobian_determinants = self.compute_jacobian_determinant(jacobian_matrix)
-            return l2, jacobian_determinants
+            return smoothness_loss, jacobian_determinants
 
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
@@ -195,9 +200,11 @@ class SmoothDeformationField:
             dfield_dt = (field_t[1:] - field_t[:-1])/ (time[1:] - time[:-1])
 
         temporal_smoothness = torch.sum(dfield_dt**2, dim=[2, 3, 4, 5])
-        temporal_smoothness = temporal_smoothness.mean(dim=1) #batch_size
-        # return temporal_smoothness.mean() similarity not averaged
-        return temporal_smoothness
+        temporal_smoothness = temporal_smoothness.mean(dim=1) #batch_size mean
+        print(f"temporal_smoothness: {temporal_smoothness.sum()}")
+
+        # return sum accross time points
+        return temporal_smoothness.sum()
 
     
     def compute_jacobian_determinant(self, jacobian_matrix):
@@ -320,7 +327,7 @@ class MonotonicConstraint:
             dt = self.time[1:] - self.time[:-1]
             voxelwise_derivatives = dj / dt
         # mono_loss = torch.min(torch.relu(voxelwise_derivatives - self.epsilon).sum(), torch.relu(-voxelwise_derivatives - self.epsilon).sum())/10000
-        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/10000
+        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/1000
         return mono_loss
 
 
