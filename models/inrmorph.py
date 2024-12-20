@@ -57,8 +57,9 @@ class InrMorph(pl.LightningModule):
         self.omega_0 = omega_0
         self.seed = 42
         # self.time = self.time.clone().detach().requires_grad_(True)
-        self.time = self.time.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand(-1, self.batch_size,
-                        *self.patch_size, -1).clone().detach().requires_grad_(True)
+        self.time = self.time.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand(-1, self.batch_size,
+                        *self.patch_size).clone().detach().requires_grad_(True)
+
         self.first_omega = 30
         self.hidden_omega = 30
         self.init_method = "sine"
@@ -93,10 +94,10 @@ class InrMorph(pl.LightningModule):
                                 time_features=self.time_features)
 
     def forward(self, coords):
-
         displacement_t = []  # len samples
         for time in self.time:
-            t_n = time.view(self.batch_size, coords.shape[1], 1)
+            t_n = time.view(self.batch_size, coords.shape[1], 1) 
+            # t_n = time.expand(self.batch_size, coords.shape[1], 1)
             t_n = self.t_mapping(t_n)  # concat this with every layer.
             phi_dims = self.mapping(coords, t_n)  # single layer
             displacement_t.append(phi_dims)

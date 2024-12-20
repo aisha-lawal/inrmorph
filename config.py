@@ -10,7 +10,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '6'
+os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -208,7 +208,7 @@ def wandb_setup():
         log_model=True,
     )
     # if not args.fast_dev_run:
-    # logger.experiment.log_code()
+    logger.experiment.log_code()
     return model_checkpoint, logger
 
 
