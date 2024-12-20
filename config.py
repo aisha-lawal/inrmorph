@@ -10,7 +10,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '7'
+os.environ["CUDA_VISIBLE_DEVICES"] = '6'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -90,7 +90,7 @@ def arg():
 
     parser.add_argument("--monotonicity_reg", type=float,
                         dest="monotonicity_reg",
-                        default=1.0,
+                        default=0.5,
                         help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
@@ -142,7 +142,8 @@ def arg():
 
     parser.add_argument("--scale_factor", type=float,
                         dest="scale_factor",
-                        default=0.5,
+                        # default=0.5,
+                        default=1.0,
                         help="resolution of the image to to train with")
 
     parser.add_argument("--omega_0", type=float,
@@ -172,12 +173,12 @@ def arg():
 
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
-                        default=80,
+                        default=150,
                         help="total number of epochs")
 
     parser.add_argument("--gradient_type", type=str,
                         dest="gradient_type",
-                        default="finite_difference",
+                        default="analytic_gradient",
                         help="state to use either \"finite_difference\" or \"analytic_gradient\"")
     args = parser.parse_args()
     args.batch_size = 48 if args.gradient_type == "finite_difference" else 12
@@ -207,7 +208,7 @@ def wandb_setup():
         log_model=True,
     )
     # if not args.fast_dev_run:
-    logger.experiment.log_code()
+    # logger.experiment.log_code()
     return model_checkpoint, logger
 
 

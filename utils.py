@@ -1,7 +1,5 @@
 import numpy as np
 import torch
-from sympy.ntheory.factor_ import smoothness_p
-
 from config import device
 
 
@@ -163,6 +161,7 @@ class SmoothDeformationField:
             jacobian_determinants = self.compute_jacobian_determinant(jacobian_matrix)
             return smoothness_loss, jacobian_determinants
 
+
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
             spacing = 1
@@ -192,8 +191,7 @@ class SmoothDeformationField:
             dfield_dt = torch.autograd.grad(
                 outputs=field_t,
                 inputs=time,
-                grad_outputs=torch.ones_like(field_t),
-                create_graph=True,
+                grad_outputs=torch.ones_like(field_t)
             )[0]
         else:
             #for numerical approximation
@@ -201,9 +199,6 @@ class SmoothDeformationField:
 
         temporal_smoothness = torch.sum(dfield_dt**2, dim=[2, 3, 4, 5])
         temporal_smoothness = temporal_smoothness.mean(dim=1) #batch_size mean
-        print(f"temporal_smoothness: {temporal_smoothness.sum()}")
-
-        # return sum accross time points
         return temporal_smoothness.sum()
 
     
@@ -263,7 +258,12 @@ class GradientComputation:
             grad_outputs[..., d] = 1.0  # set grad_outputs to compute derivative w.r.t. dth output dimension
 
             # compute gradients for all points accross all batches in parallel
-            grad = torch.autograd.grad(outputs=field, inputs=coords, grad_outputs=grad_outputs, create_graph=True, )[0]
+            grad = torch.autograd.grad(
+                outputs=field, 
+                inputs=coords, 
+                grad_outputs=grad_outputs,
+                create_graph=True,
+                 )[0]
 
             # store the computed gradients in the jac_matrix
             matrix[..., d] = grad
@@ -290,7 +290,12 @@ class GradientComputation:
     def gradient(self, input_coords, output, b=None, grad_outputs=None):
 
         grad_outputs = torch.ones_like(output)
-        grad = torch.autograd.grad(output, [input_coords], grad_outputs=grad_outputs, create_graph=True)[0]
+        grad = torch.autograd.grad(
+            output,
+            [input_coords],
+            grad_outputs=grad_outputs,
+            create_graph=True
+            )[0]
 
         if b == None:
             return grad
@@ -318,7 +323,6 @@ class MonotonicConstraint:
                 outputs=jacobian_determinants,
                 inputs=self.time,
                 grad_outputs=torch.ones_like(jacobian_determinants),
-                create_graph=True,
             )[0]
             voxelwise_derivatives = voxelwise_derivatives.squeeze(-1)
         else:
@@ -326,8 +330,11 @@ class MonotonicConstraint:
             dj = jacobian_determinants[1:] - jacobian_determinants[:-1]
             dt = self.time[1:] - self.time[:-1]
             voxelwise_derivatives = dj / dt
-        # mono_loss = torch.min(torch.relu(voxelwise_derivatives - self.epsilon).sum(), torch.relu(-voxelwise_derivatives - self.epsilon).sum())/10000
-        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/1000
+
+
+        positive_sum = torch.relu(voxelwise_derivatives).sum(dim=0)
+        negative_sum = torch.relu(-voxelwise_derivatives).sum(dim=0)
+        mono_loss = torch.min(positive_sum, negative_sum).sum()
         return mono_loss
 
 
@@ -387,7 +394,12 @@ class PenalizeLocalVolumeChange:
 
     def gradient(self, coords, field):
         gradient_outputs = torch.ones_like(field)
-        gradient = torch.autograd.grad(field, [coords], grad_outputs=gradient_outputs, create_graph=True)[0]
+        gradient = torch.autograd.grad(
+            field, 
+            [coords], 
+            grad_outputs=gradient_outputs, 
+            create_graph=True
+        )[0]
         return gradient
 
 

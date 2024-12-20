@@ -142,7 +142,8 @@ class InrMorph(pl.LightningModule):
         coords = coords.unsqueeze(0)
         batch_size = 1
         tm = time.unsqueeze(0).unsqueeze(0)
-        tm = tm.view(batch_size, coords.shape[1], 1)
+        # tm = tm.view(batch_size, coords.shape[1], 1) #analytic gradient
+        tm = tm.expand(batch_size, coords.shape[1], 1)
 
         tm = self.t_mapping(tm)
         displacement = self.mapping(coords, tm)
@@ -213,6 +214,8 @@ class InrMorph(pl.LightningModule):
 
             if self.gradient_type == "analytic_gradient":
                 spatial_smoothness_t, jac_det[idx] = self.smoothness.spatial(deformation_field_t[idx], coords)
+                # spatial_smoothness_t = self.smoothness.spatial(deformation_field_t[idx], coords) #no monoloss
+
             else:
                 spatial_smoothness_t = self.smoothness.spatial(deformation_field_t[idx], coords)
                 jac_det = None
@@ -227,12 +230,16 @@ class InrMorph(pl.LightningModule):
                                                        self.time) * self.temporal_reg_weight
 
         total_loss += temporal_smoothness
+        # if self.current_epoch >= 50 :
+        #     if jac_det != None:
+        #         mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
+        #         total_loss += mono_loss
+        # else:
+        #     mono_loss = 0
         if jac_det != None:
             mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
             total_loss += mono_loss
-            # mono_loss = self.monotonic_constraint.forward(jac_det)
-            # total_loss += mono_loss
-
+    
         print(
             "NCC: {}, Spatial smoothness: {}, Total loss: {}, Mono loss: {}, Temporal smoothness: {}".format(similarity, spatial_smoothness, total_loss,
                                                                             mono_loss, temporal_smoothness))
