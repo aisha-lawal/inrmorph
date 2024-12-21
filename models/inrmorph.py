@@ -43,7 +43,6 @@ class InrMorph(pl.LightningModule):
         self.similarity_metric = similarity_metric
         self.gradient_type = gradient_type
         self.loss_type = loss_type
-        self.time = time
         self.lr = lr
         self.weight_decay = weight_decay
 
@@ -56,10 +55,14 @@ class InrMorph(pl.LightningModule):
         self.hidden_layers = hidden_layers
         self.omega_0 = omega_0
         self.seed = 42
-        # self.time = self.time.clone().detach().requires_grad_(True)
-        self.time = self.time.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand(-1, self.batch_size,
-                        *self.patch_size).clone().detach().requires_grad_(True)
 
+        #reshaping time, this is needed so we can compute voxelwise derivative for temporal and mono smoothness
+        # self.time = self.time.clone().detach().requires_grad_(True)
+        time = time.view(-1, 1, 1, 1, 1)
+        time = time.expand(-1, self.batch_size, *self.patch_size)
+        self.time = time.clone().detach().requires_grad_(True)
+
+        print(f"self.time.shape: {self.time.shape}")
         self.first_omega = 30
         self.hidden_omega = 30
         self.init_method = "sine"

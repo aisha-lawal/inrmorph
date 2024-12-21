@@ -37,7 +37,7 @@ def main():
     )
     trainer = Trainer(
         # fast_dev_run=args.fast_dev_run,
-        fast_dev_run=False,
+        fast_dev_run=True,
         max_epochs=args.num_epochs,
         log_every_n_steps=num_steps_per_epoch,
         accelerator="auto",
