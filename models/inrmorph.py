@@ -7,7 +7,7 @@ import torch
 from models.finer import Finer
 from models.relu import ReLU
 from models.siren import Siren
-from utils import SpatialTransform, SmoothDeformationField, MonotonicConstraint
+from utils import SpatialTransform, SpatioTemporalRegularization, MonotonicConstraint
 import lightning as pl
 
 class InrMorph(pl.LightningModule):
@@ -18,6 +18,7 @@ class InrMorph(pl.LightningModule):
                  spatial_reg_weight: float,
                  temporal_reg_weight: float,
                  monotonicity_reg_weight: float,
+                 spatial_reg_type: str,
                  batch_size: int,
                  network_type: str,
                  similarity_metric: str,
@@ -37,6 +38,7 @@ class InrMorph(pl.LightningModule):
         self.spatial_reg_weight = spatial_reg_weight
         self.temporal_reg_weight = temporal_reg_weight
         self.monotonicity_reg_weight = monotonicity_reg_weight
+        self.spatial_reg_type = spatial_reg_type
         self.batch_size = batch_size
         self.network_type = network_type
         self.similarity_metric = similarity_metric
@@ -66,8 +68,8 @@ class InrMorph(pl.LightningModule):
         self.fbs = 5  # k for bias initialization according to paper optimal
         self.transform = SpatialTransform()
         self.t_mapping = self.time_mapping(self.time_features)
-        self.smoothness = SmoothDeformationField(self.gradient_type, self.patch_size,
-                                                 self.batch_size, self.time)
+        self.smoothness = SpatioTemporalRegularization(self.gradient_type, self.patch_size,
+                                                 self.batch_size, self.time, self.spatial_reg_type)
 
         self.monotonic_constraint = MonotonicConstraint(self.patch_size, self.batch_size, self.time, self.gradient_type)
 
@@ -210,28 +212,33 @@ class InrMorph(pl.LightningModule):
                 similarity += ncc
 
             if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
+                #spatial
                 spatial_smoothness_t, jac_det[idx] = self.smoothness.spatial(deformation_field_t[idx], coords)
                 # spatial_smoothness_t = self.smoothness.spatial(deformation_field_t[idx], coords) #no monoloss
 
             else:
                 spatial_smoothness_t = self.smoothness.spatial(deformation_field_t[idx], coords)
                 jac_det = None
+            #condition for spatial reg type for each timepoint
+            if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
+                spatial_smoothness_t = spatial_smoothness_t * self.spatial_reg_weight
+                spatial_smoothness += spatial_smoothness_t
+                total_loss += (similarity + spatial_smoothness_t)
+            else:
+                #if spatial_reg_type is smoothness of rate of change, don't calculate independent smoothness
+                total_loss += similarity
 
-            spatial_smoothness_t = spatial_smoothness_t * self.spatial_reg_weight
-            spatial_smoothness += spatial_smoothness_t
-            total_loss += (similarity + spatial_smoothness_t)
-            # total_loss += similarity
-
-        # temporal_smoothness = 0
-        temporal_smoothness = self.smoothness.temporal(deformation_field_t) * self.temporal_reg_weight
-
-        total_loss += temporal_smoothness
-        # if self.current_epoch >= 50 :
-        #     if jac_det != None:
-        #         mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
-        #         total_loss += mono_loss
-        # else:
-        #     mono_loss = 0
+        #condition for
+        if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
+            temporal_smoothness = self.smoothness.temporal(deformation_field_t, coords) * self.temporal_reg_weight
+            # temporal_smoothness = 0
+            total_loss += temporal_smoothness
+        else:
+            #spatial_smoothness below overrides the defined one above
+            temporal_smoothness, spatial_smoothness = self.smoothness.temporal(deformation_field_t, coords)
+            temporal_smoothness = temporal_smoothness * self.temporal_reg_weight
+            spatial_smoothness = spatial_smoothness * self.spatial_reg_weight
+            total_loss += temporal_smoothness + spatial_smoothness
 
         if jac_det != None:
             mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight

@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from config import device, GradientType
+from config import device, GradientType, SpatialRegularizationType
 
 
 ##########SPATIAL TRANSFORM#############
@@ -135,17 +135,18 @@ class SpatialTransform:
 
 
 #####################Regularization###############
-class SmoothDeformationField:
+class SpatioTemporalRegularization:
     """
     Input: shape of [batch_size, flattened_patchsize, ndims]
     """
 
-    def __init__(self, gradient_type, patch_size, batch_size, time):
+    def __init__(self, gradient_type, patch_size, batch_size, time, spatial_reg_type):
 
         self.patch_size = patch_size
         self.batch_size = batch_size
         self.gradient_type = gradient_type
         self.time = time
+        self.spatial_reg_type = spatial_reg_type
         self.gradient_computation = GradientComputation()
 
     def spatial(self, field, coords):
@@ -159,8 +160,6 @@ class SmoothDeformationField:
             jacobian_determinants = self.compute_jacobian_determinant(jacobian_matrix)
             return smoothness_loss, jacobian_determinants
             # return smoothness_loss #no mono loss
-
-
 
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
@@ -179,14 +178,12 @@ class SmoothDeformationField:
             # smoothness_loss= fieldx + fieldy + fieldz
             return smoothness_loss
 
-    def temporal(self, field_t):
+    def temporal(self, field_t, coords):
         """
         we do dfield/dt
         field is of shape [batch_size, flattened_patchsize, ndims] and len(time.unique())
         """
-        dims = len(self.patch_size)
         field_t = torch.stack(field_t, dim=0)
-        # exit()
         if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
             dfield_dt = torch.autograd.grad(
                 outputs=field_t,
@@ -199,8 +196,23 @@ class SmoothDeformationField:
             dfield_dt = (field_t[1:] - field_t[:-1])/ (self.time[1:] - self.time[:-1])
 
         temporal_smoothness = torch.sum(dfield_dt**2, dim=[-3, -2, -1])
-        # temporal_smoothness = temporal_smoothness.mean(dim=1)
-        return temporal_smoothness.sum()/10
+        temporal_smoothness = temporal_smoothness.sum()/10
+        if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
+            return temporal_smoothness
+        else:
+            dfield_dt = dfield_dt.reshape(len(self.time.unique()), self.batch_size, -1)
+            print(f"shapes of tensors {dfield_dt.shape, coords.shape}")
+            dfield_dt_dcoords = torch.autograd.grad(
+                outputs=dfield_dt,
+                inputs=coords,
+                grad_outputs=torch.ones_like(dfield_dt),
+                create_graph=True,
+            )[0]
+            print(f"shapes of tensors {dfield_dt_dcoords.shape, dfield_dt.shape, coords.shape}")
+            exit()
+            spatial_smoothness = torch.sum(dfield_dt_dcoords**2, dim=[-2, -1])
+            spatial_smoothness = spatial_smoothness.sum()/100
+            return temporal_smoothness, spatial_smoothness
 
     
     def compute_jacobian_determinant(self, jacobian_matrix):
@@ -265,7 +277,6 @@ class GradientComputation:
                 grad_outputs=grad_outputs,
                 create_graph=True,
                  )[0]
-
             # store the computed gradients in the jac_matrix
             matrix[..., d] = grad
         return matrix
@@ -297,7 +308,6 @@ class GradientComputation:
             grad_outputs=grad_outputs,
             create_graph=True
             )[0]
-
         if b == None:
             return grad
         else:

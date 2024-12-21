@@ -22,6 +22,7 @@ def main():
         spatial_reg_weight=args.spatial_reg,
         temporal_reg_weight=args.temporal_reg,
         monotonicity_reg_weight=args.monotonicity_reg,
+        spatial_reg_type=args.spatial_reg_type,
         batch_size=args.batch_size,
         network_type=args.network_type,
         similarity_metric=args.similarity_metric,

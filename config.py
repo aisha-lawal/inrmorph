@@ -122,7 +122,8 @@ def arg():
     parser.add_argument("--spatial_reg_type",
                         type=lambda s: SpatialRegularizationType(s),
                         choices=list(SpatialRegularizationType),
-                        default=SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY,
+                        # default=SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY,
+                        default=SpatialRegularizationType.SPATIAL_RATE_OF_TEMPORAL_CHANGE,
                         help="Choose an option from the Enum: {}".format(", ".join(e.name for e in SpatialRegularizationType)))
 
     parser.add_argument("--time", type=int,
