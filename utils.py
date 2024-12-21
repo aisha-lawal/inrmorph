@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from config import device
+from config import device, GradientType
 
 
 ##########SPATIAL TRANSFORM#############
@@ -140,15 +140,16 @@ class SmoothDeformationField:
     Input: shape of [batch_size, flattened_patchsize, ndims]
     """
 
-    def __init__(self, gradient_type, patch_size, batch_size):
+    def __init__(self, gradient_type, patch_size, batch_size, time):
 
         self.patch_size = patch_size
         self.batch_size = batch_size
         self.gradient_type = gradient_type
+        self.time = time
         self.gradient_computation = GradientComputation()
 
     def spatial(self, field, coords):
-        if self.gradient_type == "analytic_gradient":
+        if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
             jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
 
             # compute L2 norm of jacobian matrix (without squaroots)
@@ -157,6 +158,8 @@ class SmoothDeformationField:
             #compute jacobian determinant component
             jacobian_determinants = self.compute_jacobian_determinant(jacobian_matrix)
             return smoothness_loss, jacobian_determinants
+            # return smoothness_loss #no mono loss
+
 
 
         else:
@@ -176,28 +179,28 @@ class SmoothDeformationField:
             # smoothness_loss= fieldx + fieldy + fieldz
             return smoothness_loss
 
-    def temporal(self, batch_size, patch_size, field_t, time):
+    def temporal(self, field_t):
         """
         we do dfield/dt
         field is of shape [batch_size, flattened_patchsize, ndims] and len(time.unique())
         """
-        dims = len(patch_size)
+        dims = len(self.patch_size)
         field_t = torch.stack(field_t, dim=0)
         # exit()
-        if self.gradient_type == "analytic_gradient":
+        if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
             dfield_dt = torch.autograd.grad(
                 outputs=field_t,
-                inputs=time, #gives a global derivative and not voxelwise if scalar 
+                inputs=self.time, #gives a global derivative and not voxelwise if scalar 
                 grad_outputs=torch.ones_like(field_t),
                 create_graph=True,
             )[0]
         else:
             #for numerical approximation
-            dfield_dt = (field_t[1:] - field_t[:-1])/ (time[1:] - time[:-1])
+            dfield_dt = (field_t[1:] - field_t[:-1])/ (self.time[1:] - self.time[:-1])
 
         temporal_smoothness = torch.sum(dfield_dt**2, dim=[-3, -2, -1])
         # temporal_smoothness = temporal_smoothness.mean(dim=1)
-        return temporal_smoothness.sum()/100
+        return temporal_smoothness.sum()/10
 
     
     def compute_jacobian_determinant(self, jacobian_matrix):
@@ -315,7 +318,7 @@ class MonotonicConstraint:
 
     def forward(self, jacobian_determinants):
         jacobian_determinants = jacobian_determinants.view(len(self.time.unique()), self.batch_size, *self.patch_size)
-        if self.gradient_type == "analytic_gradient":
+        if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
             jacobian_determinants = jacobian_determinants.unsqueeze(-1)
             voxelwise_derivatives = torch.autograd.grad(
                 outputs=jacobian_determinants,
@@ -335,7 +338,7 @@ class MonotonicConstraint:
         #sum of all negative voxelwise derivatives across time points
         negative_sum = torch.relu(-voxelwise_derivatives).sum(dim=0) 
         #pick the minimum between the sum of all positive and negative voxelwise derivatives across time points
-        mono_loss = torch.min(positive_sum, negative_sum).sum()/1000 
+        mono_loss = torch.min(positive_sum, negative_sum).sum()/100
         return mono_loss
 
 

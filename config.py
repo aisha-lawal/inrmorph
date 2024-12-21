@@ -1,16 +1,18 @@
 from pathlib import Path
 import random
 import numpy as np
+from typing import ClassVar
 import torch
 import json
 import os
+from enum import Enum
 from argparse import ArgumentParser
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '7'
+os.environ["CUDA_VISIBLE_DEVICES"] = '6'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -30,6 +32,26 @@ def set_seed(seed: int = 42):
     random.seed(seed)
 
 
+#define ENUMS
+
+class NetworkType(Enum):
+    FINER: ClassVar[str] = "finer"
+    SIREN: ClassVar[str] = "siren"
+    ReLU: ClassVar[str] = "relu"
+
+class GradientType(Enum):
+    FINITE_DIFFERENCE: ClassVar[str] = "finite_difference" #numerical approx
+    ANALYTIC_GRADIENT: ClassVar[str] = "analytic_gradient"
+
+class SimilarityMetric(Enum): #using just NCC for now
+    NCC: ClassVar[str] = "ncc" 
+    MSE: ClassVar[str] = "mse"
+
+class SpatialRegularizationType(Enum):
+    SPATIAL_RATE_OF_TEMPORAL_CHANGE: ClassVar[str] = "spatial_rate_of_temporal_change" 
+    SPATIAL_JACOBIAN_MATRIX_PENALTY: ClassVar[str] = "spatial_jacobaian_matrix_penalty"
+
+
 def arg():
     parser = ArgumentParser()
 
@@ -38,10 +60,13 @@ def arg():
                         default='default',
                         help="wandblogger")
 
-    parser.add_argument("--network_type", type=str,
-                        dest="network_type",
-                        required=True,
-                        help="relu or siren or finer")
+    parser.add_argument("--network_type",
+                        type=lambda s: NetworkType(s),
+                        choices=list(NetworkType),
+                        # required=True,
+                        default=NetworkType.SIREN,
+                        help="Choose an option from the Enum: {}".format(", ".join(e.name for e in NetworkType)))
+
 
     parser.add_argument("--dir_path", type=str,
                         dest="dir_path",
@@ -64,15 +89,11 @@ def arg():
                         default='50',
                         help="number of generated pixel coordinate between pixel height/width, ideally should be greater than height and width")
 
-    parser.add_argument("--similarity_metric", type=str,
-                        dest="similarity_metric",
-                        default='NCC',
-                        help="MSE or NCC or MI")
-
-    parser.add_argument("--regularization_type", type=str,
-                        dest="regularization_type",
-                        default='jacobian',
-                        help="jacobian or bending_energy")
+    parser.add_argument("--similarity_metric",
+                        type=lambda s: SimilarityMetric(s),
+                        choices=list(SimilarityMetric),
+                        default=SimilarityMetric.NCC,
+                        help="Choose an option from the Enum: {}".format(", ".join(e.name for e in SimilarityMetric)))
 
     parser.add_argument("--datapath", type=str,
                         default=get_datapath(),
@@ -85,29 +106,24 @@ def arg():
 
     parser.add_argument("--temporal_reg", type=float,
                         dest="temporal_reg",
-                        default=1.0,
+                        default=0.2,
                         help="weight for temporal regularization")
 
     parser.add_argument("--monotonicity_reg", type=float,
                         dest="monotonicity_reg",
-                        default=0.5,
+                        default=0.25,
                         help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
                         dest="subjectID",
                         default="AD/005_S_0814",
                         help="subject to train, include patient type")
-
-    parser.add_argument("--model_type", type=str,
-                        dest="model_type",
-                        default="pre",
-                        help="pre/post/full"
-                        )
-    parser.add_argument("--loss_type", type=str,
-                        dest="loss_type",
-                        default="L2",
-                        help="L1 or L2"
-                        )
+    
+    parser.add_argument("--spatial_reg_type",
+                        type=lambda s: SpatialRegularizationType(s),
+                        choices=list(SpatialRegularizationType),
+                        default=SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY,
+                        help="Choose an option from the Enum: {}".format(", ".join(e.name for e in SpatialRegularizationType)))
 
     parser.add_argument("--time", type=int,
                         dest="time",
@@ -176,10 +192,12 @@ def arg():
                         default=150,
                         help="total number of epochs")
 
-    parser.add_argument("--gradient_type", type=str,
-                        dest="gradient_type",
-                        default="analytic_gradient",
-                        help="state to use either \"finite_difference\" or \"analytic_gradient\"")
+    parser.add_argument("--gradient_type",
+                        type=lambda s: GradientType(s),
+                        choices=list(GradientType),
+                        default=GradientType.ANALYTIC_GRADIENT,
+                        help="Choose an option from the Enum: {}".format(", ".join(e.name for e in GradientType)))
+
     args = parser.parse_args()
     args.batch_size = 48 if args.gradient_type == "finite_difference" else 12
     #set LR and
@@ -208,7 +226,7 @@ def wandb_setup():
         log_model=True,
     )
     # if not args.fast_dev_run:
-    logger.experiment.log_code()
+    # logger.experiment.log_code()
     return model_checkpoint, logger
 
 

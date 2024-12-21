@@ -26,7 +26,6 @@ def main():
         network_type=args.network_type,
         similarity_metric=args.similarity_metric,
         gradient_type=args.gradient_type,
-        loss_type=args.loss_type,
         time=normalised_time_points,
         lr=args.lr,
         weight_decay=args.weight_decay,
@@ -66,10 +65,10 @@ def main():
         time_features=args.time_features,
         hidden_features=args.hidden_features,
     )
-    logger.log_hyperparams(model_params)
+    # logger.log_hyperparams(model_params)
 
     print("######################Training##################")
-    logger.watch(model=model, log_freq=10, log_graph=True)
+    # logger.watch(model=model, log_freq=10, log_graph=True)
     trainer.fit(model=model, train_dataloaders=train_generator, val_dataloaders=val_generator)
     save_logger_name(args.logger_name)
 

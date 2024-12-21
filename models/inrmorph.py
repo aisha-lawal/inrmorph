@@ -1,7 +1,7 @@
 from typing import List
 import torch.nn as nn
 from torch import Tensor
-from config import device
+from config import device, NetworkType, GradientType, SimilarityMetric, SpatialRegularizationType
 import numpy as np
 import torch
 from models.finer import Finer
@@ -22,7 +22,6 @@ class InrMorph(pl.LightningModule):
                  network_type: str,
                  similarity_metric: str,
                  gradient_type: str,
-                 loss_type: str,
                  time: Tensor,
                  lr: float,
                  weight_decay: float,
@@ -42,7 +41,6 @@ class InrMorph(pl.LightningModule):
         self.network_type = network_type
         self.similarity_metric = similarity_metric
         self.gradient_type = gradient_type
-        self.loss_type = loss_type
         self.lr = lr
         self.weight_decay = weight_decay
 
@@ -61,31 +59,26 @@ class InrMorph(pl.LightningModule):
         time = time.view(-1, 1, 1, 1, 1)
         time = time.expand(-1, self.batch_size, *self.patch_size)
         self.time = time.clone().detach().requires_grad_(True)
-
-        print(f"self.time.shape: {self.time.shape}")
         self.first_omega = 30
         self.hidden_omega = 30
         self.init_method = "sine"
         self.init_gain = 1
         self.fbs = 5  # k for bias initialization according to paper optimal
-        assert self.loss_type in ["L1", "L2"], "Invalid loss type"
-        assert self.gradient_type in ["finite_difference", "analytic_gradient"], "Invalid computation type"
-        assert self.network_type in ["siren", "relu", "finer"], "Invalid network type"
         self.transform = SpatialTransform()
         self.t_mapping = self.time_mapping(self.time_features)
         self.smoothness = SmoothDeformationField(self.gradient_type, self.patch_size,
-                                                 self.batch_size)
+                                                 self.batch_size, self.time)
 
         self.monotonic_constraint = MonotonicConstraint(self.patch_size, self.batch_size, self.time, self.gradient_type)
 
-        if self.network_type == "finer":
+        if self.network_type == NetworkType.FINER:
 
             self.mapping = Finer(in_features=self.in_features, out_features=self.out_features,
                                  hidden_layers=self.hidden_layers, hidden_features=self.hidden_features,
                                  first_omega=self.first_omega, hidden_omega=self.hidden_omega,
                                  init_method=self.init_method, init_gain=self.init_gain, fbs=self.fbs)
 
-        elif self.network_type == "siren":
+        elif self.network_type == NetworkType.SIREN:
 
             self.mapping = Siren(layers=[self.in_features, *[self.hidden_features + (self.time_features * i) for i in
                                                              range(self.hidden_layers)], self.out_features],
@@ -216,7 +209,7 @@ class InrMorph(pl.LightningModule):
                 ncc = self.ncc_loss(warped_t[idx - 1], fixed)
                 similarity += ncc
 
-            if self.gradient_type == "analytic_gradient":
+            if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
                 spatial_smoothness_t, jac_det[idx] = self.smoothness.spatial(deformation_field_t[idx], coords)
                 # spatial_smoothness_t = self.smoothness.spatial(deformation_field_t[idx], coords) #no monoloss
 
@@ -230,8 +223,7 @@ class InrMorph(pl.LightningModule):
             # total_loss += similarity
 
         # temporal_smoothness = 0
-        temporal_smoothness = self.smoothness.temporal(self.batch_size, self.patch_size, deformation_field_t,
-                                                       self.time) * self.temporal_reg_weight
+        temporal_smoothness = self.smoothness.temporal(deformation_field_t) * self.temporal_reg_weight
 
         total_loss += temporal_smoothness
         # if self.current_epoch >= 50 :
@@ -240,10 +232,11 @@ class InrMorph(pl.LightningModule):
         #         total_loss += mono_loss
         # else:
         #     mono_loss = 0
+
         if jac_det != None:
             mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
             total_loss += mono_loss
-    
+        # mono_loss = 0
         print(
             "NCC: {}, Spatial smoothness: {}, Total loss: {}, Mono loss: {}, Temporal smoothness: {}".format(similarity, spatial_smoothness, total_loss,
                                                                             mono_loss, temporal_smoothness))
