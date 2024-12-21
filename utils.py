@@ -189,7 +189,7 @@ class SmoothDeformationField:
                 outputs=field_t,
                 inputs=time, #gives a global derivative and not voxelwise if scalar 
                 grad_outputs=torch.ones_like(field_t),
-                retain_graph=True,
+                create_graph=True,
             )[0]
         else:
             #for numerical approximation
@@ -321,7 +321,7 @@ class MonotonicConstraint:
                 outputs=jacobian_determinants,
                 inputs=self.time,
                 grad_outputs=torch.ones_like(jacobian_determinants),
-                retain_graph=True,
+                create_graph=True,
             )[0]
             voxelwise_derivatives = voxelwise_derivatives.squeeze(-1)
         else:
@@ -330,10 +330,12 @@ class MonotonicConstraint:
             dt = self.time[1:] - self.time[:-1]
             voxelwise_derivatives = dj / dt
 
-
-        positive_sum = torch.relu(voxelwise_derivatives).sum(dim=0)
-        negative_sum = torch.relu(-voxelwise_derivatives).sum(dim=0)
-        mono_loss = torch.min(positive_sum, negative_sum).sum()/1000
+        #sum of all positive voxelwise derivatives across time points
+        positive_sum = torch.relu(voxelwise_derivatives).sum(dim=0) 
+        #sum of all negative voxelwise derivatives across time points
+        negative_sum = torch.relu(-voxelwise_derivatives).sum(dim=0) 
+        #pick the minimum between the sum of all positive and negative voxelwise derivatives across time points
+        mono_loss = torch.min(positive_sum, negative_sum).sum()/1000 
         return mono_loss
 
 
