@@ -121,10 +121,7 @@ class InrMorph(pl.LightningModule):
     def train_val_pipeline(self, coords: torch.Tensor, process: str):
         # flatten to shape [batch_size, flattened_patch_size, ndims]
         coords = coords.view(self.batch_size, self.flattened_patch_size, self.ndims)
-        #expand coords to shape [len(time),batch_size, flattened_patch_size, ndims] for spatial rate of change derivative
-        # coords = coords.unsqueeze(0).expand(len(self.time), -1, -1, -1)
         coords = coords.clone().detach().requires_grad_(True)
-        # coords = coords[0]
         displacement_t = self.forward(coords)
         warped_t, fixed, deformation_field_t = self.compute_transform(coords, displacement_t)
 
@@ -239,7 +236,6 @@ class InrMorph(pl.LightningModule):
         #condition for spatial smoothness in temporal rate of change
         if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
             temporal_smoothness = self.smoothness.temporal(deformation_field_t, coords) * self.temporal_reg_weight
-            # temporal_smoothness = 0
             total_loss += temporal_smoothness
         else:
             #spatial_smoothness below overrides the defined one above

@@ -101,7 +101,8 @@ def arg():
 
     parser.add_argument("--spatial_reg", type=float,
                         dest="spatial_reg",
-                        default=0.01,
+                        # default=0.01,
+                        default=1.0, #use for spatial rate of change reg
                         help="weight for spatial regularization")
 
     parser.add_argument("--temporal_reg", type=float,
@@ -122,8 +123,8 @@ def arg():
     parser.add_argument("--spatial_reg_type",
                         type=lambda s: SpatialRegularizationType(s),
                         choices=list(SpatialRegularizationType),
-                        default=SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY,
-                        # default=SpatialRegularizationType.SPATIAL_RATE_OF_TEMPORAL_CHANGE,
+                        # default=SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY,
+                        default=SpatialRegularizationType.SPATIAL_RATE_OF_TEMPORAL_CHANGE,
                         help="Choose an option from the Enum: {}".format(", ".join(e.name for e in SpatialRegularizationType)))
 
     parser.add_argument("--time", type=int,
@@ -201,6 +202,7 @@ def arg():
 
     args = parser.parse_args()
     args.batch_size = 48 if args.gradient_type == "finite_difference" else 12
+
     #set LR and
     return args
 
@@ -227,7 +229,7 @@ def wandb_setup():
         log_model=True,
     )
     # if not args.fast_dev_run:
-    # logger.experiment.log_code()
+    logger.experiment.log_code()
     return model_checkpoint, logger
 
 

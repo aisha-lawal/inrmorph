@@ -37,7 +37,7 @@ def main():
     )
     trainer = Trainer(
         # fast_dev_run=args.fast_dev_run,
-        fast_dev_run=True,
+        fast_dev_run=False,
         max_epochs=args.num_epochs,
         log_every_n_steps=num_steps_per_epoch,
         accelerator="auto",
@@ -66,10 +66,10 @@ def main():
         time_features=args.time_features,
         hidden_features=args.hidden_features,
     )
-    # logger.log_hyperparams(model_params)
+    logger.log_hyperparams(model_params)
 
     print("######################Training##################")
-    # logger.watch(model=model, log_freq=10, log_graph=True)
+    logger.watch(model=model, log_freq=10, log_graph=True)
     trainer.fit(model=model, train_dataloaders=train_generator, val_dataloaders=val_generator)
     save_logger_name(args.logger_name)
 
