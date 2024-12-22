@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from config import device
+from config import device, GradientType, SpatialRegularizationType
 
 
 ##########SPATIAL TRANSFORM#############
@@ -57,8 +57,7 @@ class SpatialTransform:
 
         return pixel_values
 
-        # from INR paper
-
+    # from INR paper
     def trilinear_interpolation(self, coords: torch.Tensor, img: torch.Tensor) -> torch.Tensor:
         """
         Args: coords of shape [batchsize, flattened_patchsize, ndims]
@@ -135,28 +134,31 @@ class SpatialTransform:
 
 
 #####################Regularization###############
-class SmoothDeformationField:
+class SpatioTemporalRegularization:
     """
     Input: shape of [batch_size, flattened_patchsize, ndims]
     """
 
-    def __init__(self, gradient_type, patch_size, batch_size):
+    def __init__(self, gradient_type, patch_size, batch_size, time, spatial_reg_type):
 
         self.patch_size = patch_size
         self.batch_size = batch_size
         self.gradient_type = gradient_type
+        self.time = time
+        self.spatial_reg_type = spatial_reg_type
         self.gradient_computation = GradientComputation()
+        self.num_time_points = len(self.time.unique())
 
     def spatial(self, field, coords):
-        if self.gradient_type == "analytic_gradient":
+        if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
             jacobian_matrix = self.gradient_computation.compute_matrix(coords, field)
 
-            # can also compute frobenius norm of jacobian matrix i.e L2 norm in matrix form.
-            l2 = torch.norm(jacobian_matrix, dim=(-2, -1), p=2).sum(dim=1).mean()
-            # smoothness_loss = torch.sum(jacobian_matrix **2, dim=[1, 2, 3]).mean()
+            # compute L2 norm of jacobian matrix (without squaroots)
+            smoothness_loss = torch.sum(jacobian_matrix**2, dim=(-2, -1)).mean()  #mean across spatial dim and batch
             #compute jacobian determinant component
             jacobian_determinants = self.compute_jacobian_determinant(jacobian_matrix)
-            return l2, jacobian_determinants
+            return smoothness_loss, jacobian_determinants
+            # return smoothness_loss #no mono loss
 
         else:
             field = field.view(self.batch_size, *self.patch_size, len(self.patch_size))
@@ -175,29 +177,39 @@ class SmoothDeformationField:
             # smoothness_loss= fieldx + fieldy + fieldz
             return smoothness_loss
 
-    def temporal(self, batch_size, patch_size, field_t, time):
+    def temporal(self, field_t, coords):
         """
         we do dfield/dt
         field is of shape [batch_size, flattened_patchsize, ndims] and len(time.unique())
         """
-        dims = len(patch_size)
-        field_t = [field.view(batch_size, *patch_size, dims) for field in field_t]
         field_t = torch.stack(field_t, dim=0)
-        if self.gradient_type == "analytic_gradient":
+        if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
             dfield_dt = torch.autograd.grad(
                 outputs=field_t,
-                inputs=time,
+                inputs=self.time, #gives a global derivative and not voxelwise if scalar 
                 grad_outputs=torch.ones_like(field_t),
                 create_graph=True,
             )[0]
         else:
             #for numerical approximation
-            dfield_dt = (field_t[1:] - field_t[:-1])/ (time[1:] - time[:-1])
+            dfield_dt = (field_t[1:] - field_t[:-1])/ (self.time[1:] - self.time[:-1])
 
-        temporal_smoothness = torch.sum(dfield_dt**2, dim=[2, 3, 4, 5])
-        temporal_smoothness = temporal_smoothness.mean(dim=1) #batch_size
-        # return temporal_smoothness.mean() similarity not averaged
-        return temporal_smoothness
+        temporal_smoothness = torch.sum(dfield_dt**2, dim=[-3, -2, -1])
+        temporal_smoothness = temporal_smoothness.sum()/10
+        if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
+            return temporal_smoothness
+        else:
+            dfield_dt = dfield_dt.reshape(self.num_time_points, self.batch_size, -1).unsqueeze(-1)
+            #compute spatial smoothness by computing the jacobian matrix for each time point t in dfield_dt and summing it
+            #where outputs is dfield_dt of shape [4, batch_size, flattened_patch_size, 1] for each time point and inputs is coords of 
+            # shape [batch_size, flattened_patch_size, ndims]
+            jacobian_matrix_t = torch.zeros(*dfield_dt.shape, len(self.patch_size), device=dfield_dt.device, dtype=dfield_dt.dtype)
+            for idx, dfield in enumerate(dfield_dt):
+                jacobian_matrix_t[idx] = self.gradient_computation.compute_matrix(coords, dfield)
+            
+            spatial_smoothness = torch.sum(jacobian_matrix_t**2, dim=(-2, -1)) #sum across spatial dimensions
+            spatial_smoothness = spatial_smoothness.mean(dim=(-2, -1)).sum()  #mean across batch and sum across time points
+            return temporal_smoothness, spatial_smoothness
 
     
     def compute_jacobian_determinant(self, jacobian_matrix):
@@ -244,22 +256,27 @@ class GradientComputation:
             field: Tensor of shape [batch_size, num_points, dim].
 
         Returns:
-            matrix: Tensor of shape [batch_size, num_points, dim, dim].
+            matrix: Tensor of shape [batch_size, num_points, field_dim, coords_dim]. The Jacobian matrix.
+
         """
-        batch_size, num_points, dim = coords.shape
+        batch_size, num_points, coords_dim = coords.shape
+        _, _, field_dim = field.shape
         # initialize the Jacobian matrix
-        matrix = torch.zeros(batch_size, num_points, dim, dim, device=coords.device)
-
-        # loop over dimensions of the field (to calculate gradient w.r.t each dimension)
-        for d in range(dim):
-            grad_outputs = torch.zeros_like(field)
+        matrix = torch.zeros(batch_size, num_points, field_dim, coords_dim, device=coords.device)
+        # loop over dimensions of the field (to calculate gradient of each dim w.r.t each dimension)
+        for d in range(field_dim):
+            grad_outputs = torch.zeros_like(field) #zero out other dimensions and set grad_outputs to compute derivative w.r.t. dth output dimension
             grad_outputs[..., d] = 1.0  # set grad_outputs to compute derivative w.r.t. dth output dimension
-
-            # compute gradients for all points accross all batches in parallel
-            grad = torch.autograd.grad(outputs=field, inputs=coords, grad_outputs=grad_outputs, create_graph=True, )[0]
-
+            
+            # compute gradients for all points across all batches in parallel
+            grad = torch.autograd.grad(
+                outputs=field,
+                inputs=coords, 
+                grad_outputs=grad_outputs,
+                create_graph=True,
+                 )[0]
             # store the computed gradients in the jac_matrix
-            matrix[..., d] = grad
+            matrix[..., d, :] = grad #this returns the gradient of the field at dth dimension wrt each dimension in coords
         return matrix
 
     # def compute_matrix(self, coords, field):
@@ -283,8 +300,12 @@ class GradientComputation:
     def gradient(self, input_coords, output, b=None, grad_outputs=None):
 
         grad_outputs = torch.ones_like(output)
-        grad = torch.autograd.grad(output, [input_coords], grad_outputs=grad_outputs, create_graph=True)[0]
-
+        grad = torch.autograd.grad(
+            output,
+            [input_coords],
+            grad_outputs=grad_outputs,
+            create_graph=True
+            )[0]
         if b == None:
             return grad
         else:
@@ -302,10 +323,10 @@ class MonotonicConstraint:
         self.time = time
         self.epsilon = 1e-4
         self.gradient_type = gradient_type
-
+        self.num_time_points = len(self.time.unique())
     def forward(self, jacobian_determinants):
-        jacobian_determinants = jacobian_determinants.view(len(self.time.unique()), self.batch_size, *self.patch_size)
-        if self.gradient_type == "analytic_gradient":
+        jacobian_determinants = jacobian_determinants.view(self.num_time_points, self.batch_size, *self.patch_size)
+        if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
             jacobian_determinants = jacobian_determinants.unsqueeze(-1)
             voxelwise_derivatives = torch.autograd.grad(
                 outputs=jacobian_determinants,
@@ -319,8 +340,13 @@ class MonotonicConstraint:
             dj = jacobian_determinants[1:] - jacobian_determinants[:-1]
             dt = self.time[1:] - self.time[:-1]
             voxelwise_derivatives = dj / dt
-        # mono_loss = torch.min(torch.relu(voxelwise_derivatives - self.epsilon).sum(), torch.relu(-voxelwise_derivatives - self.epsilon).sum())/10000
-        mono_loss = torch.min(torch.relu(voxelwise_derivatives).sum(), torch.relu(-voxelwise_derivatives).sum())/10000
+
+        #sum of all positive voxelwise derivatives across time points
+        positive_sum = torch.relu(voxelwise_derivatives).sum(dim=0) 
+        #sum of all negative voxelwise derivatives across time points
+        negative_sum = torch.relu(-voxelwise_derivatives).sum(dim=0) 
+        #pick the minimum between the sum of all positive and negative voxelwise derivatives across time points
+        mono_loss = torch.min(positive_sum, negative_sum).sum()/100
         return mono_loss
 
 
@@ -380,7 +406,12 @@ class PenalizeLocalVolumeChange:
 
     def gradient(self, coords, field):
         gradient_outputs = torch.ones_like(field)
-        gradient = torch.autograd.grad(field, [coords], grad_outputs=gradient_outputs, create_graph=True)[0]
+        gradient = torch.autograd.grad(
+            field, 
+            [coords], 
+            grad_outputs=gradient_outputs, 
+            create_graph=True
+        )[0]
         return gradient
 
 
