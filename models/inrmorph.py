@@ -55,6 +55,7 @@ class InrMorph(pl.LightningModule):
         self.hidden_layers = hidden_layers
         self.omega_0 = omega_0
         self.seed = 42
+        self.flattened_patch_size = np.prod(self.patch_size)
 
         #reshaping time, this is needed so we can compute voxelwise derivative for temporal and mono smoothness
         # self.time = self.time.clone().detach().requires_grad_(True)
@@ -72,7 +73,7 @@ class InrMorph(pl.LightningModule):
                                                  self.batch_size, self.time, self.spatial_reg_type)
 
         self.monotonic_constraint = MonotonicConstraint(self.patch_size, self.batch_size, self.time, self.gradient_type)
-
+        print(self.network_type)
         if self.network_type == NetworkType.FINER:
 
             self.mapping = Finer(in_features=self.in_features, out_features=self.out_features,
@@ -81,6 +82,7 @@ class InrMorph(pl.LightningModule):
                                  init_method=self.init_method, init_gain=self.init_gain, fbs=self.fbs)
 
         elif self.network_type == NetworkType.SIREN:
+            
 
             self.mapping = Siren(layers=[self.in_features, *[self.hidden_features + (self.time_features * i) for i in
                                                              range(self.hidden_layers)], self.out_features],
@@ -88,15 +90,17 @@ class InrMorph(pl.LightningModule):
 
         else:
             self.mapping = ReLU(layers=[self.in_features, *[self.hidden_features + i * (self.time_features * 2) for
-                                                            i in range(self.num_layers)], self.out_features],
+                                                            i in range(self.hidden_layers)], self.out_features],
                                 time_features=self.time_features)
 
     def forward(self, coords):
         displacement_t = []  # len samples
-        for time in self.time:
-            t_n = time.view(self.batch_size, coords.shape[1], 1) 
-            # t_n = time.expand(self.batch_size, coords.shape[1], 1)
+        for idx, time in enumerate(self.time):
+            t_n = time.view(self.batch_size, self.flattened_patch_size, 1) 
+            # t_n = time.expand(self.batch_size, self.flattened_patch_size, 1)
             t_n = self.t_mapping(t_n)  # concat this with every layer.
+            #note that coords is always same we do this because we want to be
+            #able to compute spatial rate of change smoothness over time
             phi_dims = self.mapping(coords, t_n)  # single layer
             displacement_t.append(phi_dims)
 
@@ -116,8 +120,11 @@ class InrMorph(pl.LightningModule):
 
     def train_val_pipeline(self, coords: torch.Tensor, process: str):
         # flatten to shape [batch_size, flattened_patch_size, ndims]
-        coords = coords.view(self.batch_size, np.prod(self.patch_size), self.ndims)
+        coords = coords.view(self.batch_size, self.flattened_patch_size, self.ndims)
+        #expand coords to shape [len(time),batch_size, flattened_patch_size, ndims] for spatial rate of change derivative
+        # coords = coords.unsqueeze(0).expand(len(self.time), -1, -1, -1)
         coords = coords.clone().detach().requires_grad_(True)
+        # coords = coords[0]
         displacement_t = self.forward(coords)
         warped_t, fixed, deformation_field_t = self.compute_transform(coords, displacement_t)
 
@@ -191,7 +198,8 @@ class InrMorph(pl.LightningModule):
 
             deformation_field_t (list of torch.Tensor): contains deformation field at time t of shape [batch_size, flattened_patch, ndims]
 
-            coords: coordinats of shape [batch_size, flattened_patch, ndims]
+            coords: coordinates of shape [len(time), batch_size, flattened_patch, ndims] #note that len(time had to be added
+                to be able to compute spatial rate of change derivative)
 
         Returns: 
 
@@ -200,7 +208,7 @@ class InrMorph(pl.LightningModule):
         total_loss = 0
         similarity = 0
         spatial_smoothness = 0
-        jac_det = torch.zeros(len(self.time.unique()), self.batch_size, np.prod(self.patch_size)).to(device)
+        jac_det = torch.zeros(len(self.time.unique()), self.batch_size, self.flattened_patch_size).to(device)
         for idx, _ in enumerate(self.time.unique()):
             if idx == 0:
                 dx = deformation_field_t[idx][:, :, 0] - coords[:, :, 0]  # shape [batch_size, flattenedpatch, ndims]
@@ -228,7 +236,7 @@ class InrMorph(pl.LightningModule):
                 #if spatial_reg_type is smoothness of rate of change, don't calculate independent smoothness
                 total_loss += similarity
 
-        #condition for
+        #condition for spatial smoothness in temporal rate of change
         if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
             temporal_smoothness = self.smoothness.temporal(deformation_field_t, coords) * self.temporal_reg_weight
             # temporal_smoothness = 0
@@ -243,7 +251,6 @@ class InrMorph(pl.LightningModule):
         if jac_det != None:
             mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
             total_loss += mono_loss
-        # mono_loss = 0
         print(
             "NCC: {}, Spatial smoothness: {}, Total loss: {}, Mono loss: {}, Temporal smoothness: {}".format(similarity, spatial_smoothness, total_loss,
                                                                             mono_loss, temporal_smoothness))

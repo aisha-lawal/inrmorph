@@ -44,8 +44,8 @@ class GradientType(Enum):
     ANALYTIC_GRADIENT: ClassVar[str] = "analytic_gradient"
 
 class SimilarityMetric(Enum): #using just NCC for now
-    NCC: ClassVar[str] = "ncc" 
-    MSE: ClassVar[str] = "mse"
+    NCC: ClassVar[str] = "NCC" 
+    MSE: ClassVar[str] = "MSE"
 
 class SpatialRegularizationType(Enum):
     SPATIAL_RATE_OF_TEMPORAL_CHANGE: ClassVar[str] = "spatial_rate_of_temporal_change" 
@@ -106,12 +106,12 @@ def arg():
 
     parser.add_argument("--temporal_reg", type=float,
                         dest="temporal_reg",
-                        default=0.2,
+                        default=1.0,
                         help="weight for temporal regularization")
 
     parser.add_argument("--monotonicity_reg", type=float,
                         dest="monotonicity_reg",
-                        default=0.25,
+                        default=0.5,
                         help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
@@ -122,8 +122,8 @@ def arg():
     parser.add_argument("--spatial_reg_type",
                         type=lambda s: SpatialRegularizationType(s),
                         choices=list(SpatialRegularizationType),
-                        # default=SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY,
-                        default=SpatialRegularizationType.SPATIAL_RATE_OF_TEMPORAL_CHANGE,
+                        default=SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY,
+                        # default=SpatialRegularizationType.SPATIAL_RATE_OF_TEMPORAL_CHANGE,
                         help="Choose an option from the Enum: {}".format(", ".join(e.name for e in SpatialRegularizationType)))
 
     parser.add_argument("--time", type=int,

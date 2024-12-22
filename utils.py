@@ -57,8 +57,7 @@ class SpatialTransform:
 
         return pixel_values
 
-        # from INR paper
-
+    # from INR paper
     def trilinear_interpolation(self, coords: torch.Tensor, img: torch.Tensor) -> torch.Tensor:
         """
         Args: coords of shape [batchsize, flattened_patchsize, ndims]
@@ -200,7 +199,7 @@ class SpatioTemporalRegularization:
         if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
             return temporal_smoothness
         else:
-            dfield_dt = dfield_dt.reshape(len(self.time.unique()), self.batch_size, -1)
+            dfield_dt = dfield_dt.reshape(len(self.time.unique()), self.batch_size, -1).unsqueeze(-1)
             print(f"shapes of tensors {dfield_dt.shape, coords.shape}")
             dfield_dt_dcoords = torch.autograd.grad(
                 outputs=dfield_dt,
@@ -270,9 +269,9 @@ class GradientComputation:
             grad_outputs = torch.zeros_like(field)
             grad_outputs[..., d] = 1.0  # set grad_outputs to compute derivative w.r.t. dth output dimension
 
-            # compute gradients for all points accross all batches in parallel
+            # compute gradients for all points across all batches in parallel
             grad = torch.autograd.grad(
-                outputs=field, 
+                outputs=field,
                 inputs=coords, 
                 grad_outputs=grad_outputs,
                 create_graph=True,
