@@ -211,11 +211,13 @@ class InrMorph(pl.LightningModule):
                 dx = deformation_field_t[idx][:, :, 0] - coords[:, :, 0]  # shape [batch_size, flattenedpatch, ndims]
                 dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
                 dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
-                similarity += (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
+                similarity_t = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
             else:
                 ncc = self.ncc_loss(warped_t[idx - 1], fixed)
-                similarity += ncc
+                similarity_t = ncc
 
+            similarity += similarity_t # for NCC plot
+            
             if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
                 #spatial
                 spatial_smoothness_t, jac_det[idx] = self.smoothness.spatial(deformation_field_t[idx], coords)
@@ -228,11 +230,11 @@ class InrMorph(pl.LightningModule):
             if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
                 spatial_smoothness_t = spatial_smoothness_t * self.spatial_reg_weight
                 spatial_smoothness += spatial_smoothness_t
-                total_loss += (similarity + spatial_smoothness_t)
+                total_loss += (similarity_t + spatial_smoothness_t)
             else:
                 #if spatial_reg_type is smoothness of rate of change, don't calculate independent smoothness
-                total_loss += similarity
-
+                total_loss += similarity_t
+            
         #condition for spatial smoothness in temporal rate of change
         if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
             temporal_smoothness = self.smoothness.temporal(deformation_field_t, coords) * self.temporal_reg_weight
