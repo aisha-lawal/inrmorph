@@ -231,6 +231,7 @@ class InrMorph(pl.LightningModule):
                 spatial_smoothness_t = spatial_smoothness_t * self.spatial_reg_weight
                 spatial_smoothness += spatial_smoothness_t
                 total_loss += (similarity_t + spatial_smoothness_t)
+                # total_loss += (similarity_t) #no spatial smoothness
             else:
                 #if spatial_reg_type is smoothness of rate of change, don't calculate independent smoothness
                 total_loss += similarity_t
@@ -244,9 +245,10 @@ class InrMorph(pl.LightningModule):
             temporal_smoothness, spatial_smoothness = self.smoothness.temporal(deformation_field_t, coords)
             temporal_smoothness = temporal_smoothness * self.temporal_reg_weight
             spatial_smoothness = spatial_smoothness * self.spatial_reg_weight
+            # temporal_smoothness = 0 #no temporal
             total_loss += temporal_smoothness + spatial_smoothness
 
-        if jac_det != None:
+        if jac_det != None: #will be None if gradient type is numeric
             mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
             total_loss += mono_loss
         print(

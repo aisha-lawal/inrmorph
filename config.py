@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '7'
+os.environ["CUDA_VISIBLE_DEVICES"] = '5'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -101,8 +101,8 @@ def arg():
 
     parser.add_argument("--spatial_reg", type=float,
                         dest="spatial_reg",
-                        # default=0.01,
-                        default=1.0, #use for spatial rate of change reg
+                        default=0.01,
+                        # default=1.0, #use for spatial rate of change reg
                         help="weight for spatial regularization")
 
     parser.add_argument("--temporal_reg", type=float,
@@ -112,7 +112,8 @@ def arg():
 
     parser.add_argument("--monotonicity_reg", type=float,
                         dest="monotonicity_reg",
-                        default=0.5,
+                        # default=0.5,#MAIN
+                        default=0.01, #testing
                         help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
@@ -123,8 +124,8 @@ def arg():
     parser.add_argument("--spatial_reg_type",
                         type=lambda s: SpatialRegularizationType(s),
                         choices=list(SpatialRegularizationType),
-                        # default=SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY,
-                        default=SpatialRegularizationType.SPATIAL_RATE_OF_TEMPORAL_CHANGE,
+                        default=SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY,
+                        # default=SpatialRegularizationType.SPATIAL_RATE_OF_TEMPORAL_CHANGE,
                         help="Choose an option from the Enum: {}".format(", ".join(e.name for e in SpatialRegularizationType)))
 
     parser.add_argument("--time", type=int,
