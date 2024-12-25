@@ -2,7 +2,7 @@ import glob
 import torch
 from lightning import Trainer
 from config import save_logger_name, arg, wandb_setup, device
-from data_modules.inrmorph import InrMorphDataModule, define_resolution
+from data_modules.inrmorph import InrMorphDataModule, define_resolution, get_time_points
 from models.inrmorph import InrMorph
 
 
@@ -65,6 +65,7 @@ def main():
         hidden_layers=args.hidden_layers,
         time_features=args.time_features,
         hidden_features=args.hidden_features,
+        time_points=time_points,
     )
     logger.log_hyperparams(model_params)
 
@@ -83,21 +84,19 @@ if __name__ == "__main__":
     print("data path: ", args.datapath)
     datapath = args.datapath + args.subjectID + "/resampled/"
     data = sorted(glob.glob(datapath + "I*.nii"))
-    datamask = sorted(glob.glob(datapath + "/masks/I*.nii.gz"))
     images = define_resolution(data=data, image=True, scale_factor=args.scale_factor)
-    masks = define_resolution(data=datamask, image=False, scale_factor=args.scale_factor)
 
     """
     Retrieve time points
     """
-    print("image shape: ", images[0].shape, masks[0].shape)
+    print("image shape: ", images[0].shape)
     num_steps_per_epoch = args.num_patches // args.batch_size
-    # time_points = get_time_points(data)
-    time_points = torch.tensor(args.time, device=device, dtype=torch.float32)
+    time_points = get_time_points(data)
+    time_points = torch.tensor(time_points, device=device, dtype=torch.float32)
     normalised_time_points = time_points / 12
     I0 = images[0]  # moving #260, 260, 200
     It = images
     
-    print("######################Registering across time: {} in years##################".format(args.time))
+    print("######################Registering {} across time: {} in years##################".format(datapath, time_points))
     patch_size = [args.patch_size for _ in range(len(I0.shape))]
     main()

@@ -107,7 +107,7 @@ class InrMorphDataModule:
         self.image_shape = image_shape
 
         self.seed = 42
-        self.num_workers = 1
+        self.num_workers = 4
         self.drop_last = True
 
     def generator(self):

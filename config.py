@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '5'
+os.environ["CUDA_VISIBLE_DEVICES"] = '3'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -117,7 +117,8 @@ def arg():
 
     parser.add_argument("--subjectID", type=str,
                         dest="subjectID",
-                        default="AD/005_S_0814",
+                        # default="AD/005_S_0814",
+                        required=True,
                         help="subject to train, include patient type")
     
     parser.add_argument("--spatial_reg_type",
@@ -126,12 +127,6 @@ def arg():
                         default=SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY,
                         # default=SpatialRegularizationType.SPATIAL_RATE_OF_TEMPORAL_CHANGE,
                         help="Choose an option from the Enum: {}".format(", ".join(e.name for e in SpatialRegularizationType)))
-
-    parser.add_argument("--time", type=int,
-                        dest="time",
-                        nargs='+',
-                        default=[0, 13, 14, 24],
-                        help="time difference in months between scans 0 and each of t, start with 0")
 
     parser.add_argument("--batch_size", type=int,
                         dest="batch_size",
