@@ -97,9 +97,7 @@ if __name__ == "__main__":
     normalised_time_points = time_points / 12
     I0 = images[0]  # moving #260, 260, 200
     It = images
-    I0_mask = masks[0]
-    It_mask = masks
-
+    
     print("######################Registering across time: {} in years##################".format(args.time))
     patch_size = [args.patch_size for _ in range(len(I0.shape))]
     main()
