@@ -102,7 +102,7 @@ def arg():
     parser.add_argument("--spatial_reg", type=float,
                         dest="spatial_reg",
                         default=0.01,
-                        # default=1.0, #use for spatial rate of change reg
+                        # default=1.0, #use for spatial_rate_of_temporal_change
                         help="weight for spatial regularization")
 
     parser.add_argument("--temporal_reg", type=float,
@@ -112,8 +112,7 @@ def arg():
 
     parser.add_argument("--monotonicity_reg", type=float,
                         dest="monotonicity_reg",
-                        # default=0.5,#MAIN
-                        default=0.01, #testing
+                        default=0.5, 
                         help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
@@ -161,7 +160,6 @@ def arg():
 
     parser.add_argument("--scale_factor", type=float,
                         dest="scale_factor",
-                        # default=0.5,
                         default=1.0,
                         help="resolution of the image to to train with")
 
