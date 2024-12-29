@@ -63,6 +63,7 @@ def main():
         temporal_reg=args.temporal_reg,
         omega_0=args.omega_0,
         hidden_layers=args.hidden_layers,
+        subjectID=args.subjectID,
         time_features=args.time_features,
         hidden_features=args.hidden_features,
         time_points=time_points,
@@ -81,8 +82,8 @@ if __name__ == "__main__":
     """
     Generating data resolution
     """
-    print("data path: ", args.datapath)
     datapath = args.datapath + args.subjectID + "/resampled/"
+    print("data path: ", datapath)
     data = sorted(glob.glob(datapath + "I*.nii"))
     images = define_resolution(data=data, image=True, scale_factor=args.scale_factor)
 
