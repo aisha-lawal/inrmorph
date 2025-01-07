@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '7'
+os.environ["CUDA_VISIBLE_DEVICES"] = '5'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -136,6 +136,7 @@ def arg():
     parser.add_argument("--patch_size", type=int,
                         dest="patch_size",
                         default=12,
+                        # default=16,
                         help="patch size")
 
     parser.add_argument("--val_split", type=float,
@@ -180,12 +181,12 @@ def arg():
 
     parser.add_argument("--num_patches", type=int,
                         dest="num_patches",
-                        default=3000,
+                        default=2000,
                         help="total number of patches to be sampled for both train and val")
 
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
-                        default=150,
+                        default=90,
                         help="total number of epochs")
 
     parser.add_argument("--gradient_type",

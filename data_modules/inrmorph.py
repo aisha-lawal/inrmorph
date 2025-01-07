@@ -50,11 +50,12 @@ class CoordsPatchesTrain(Dataset):
 
 
 class CoordsPatch(Dataset):
-    def __init__(self, patch_size, num_patches, img_shape):
+    def __init__(self, patch_size, num_patches, image):
         # super(self, CoordsPatch).__init__()
         self.patch_size = np.ceil(np.array(patch_size) / 2).astype(np.int16)
         self.ndims = len(self.patch_size)
-        self.img_shape = img_shape
+        self.image = image
+        self.img_shape = self.image.shape
         self.coords = define_coords(self.img_shape)
         self.dx = torch.div(2, torch.tensor(self.coords.shape[:-1]))
         self.num_patches = num_patches  # how many random patches to sample
@@ -78,19 +79,41 @@ class CoordsPatch(Dataset):
     def __len__(self):
         return self.num_patches
 
+
+    def is_valid_patch(self, coords):
+        """
+        check if a patch is valid by sampling voxel values from the image.
+        The image and coordinates are both normalized to [-1, 1].
+        """
+        #clamp coordinates to the range [-1, 1] to avoid out-of-bound errors
+        clamped_coords = coords.clamp(-1, 1)
+        #mapping coordinates to image voxel indices
+        voxel_indices = ((clamped_coords + 1) / 2 * torch.tensor(self.img_shape, dtype=torch.float32, device='cpu')).long()
+        #ensure voxel_indices are within bounds for edge cases - image shape is between 0 and img_shape - 1
+        voxel_indices = voxel_indices.clamp(0, torch.tensor(max(self.img_shape), dtype=torch.int64, device='cpu') - 1)
+        #extract voxel values using voxel_indices
+        voxel_values = self.image[tuple(voxel_indices.T)]  #transpose to match tensor shape
+        #the proportion of zero values in the patch
+        num_zeros = (voxel_values == 0).sum().item()
+        zero_ratio = num_zeros / voxel_values.numel()
+        return zero_ratio < 0.9 #dont reject the patch if less than 90% of voxels are zero
+       
+
     def __getitem__(self, idx):
 
-        indx = np.random.randint(0, np.prod(self.spatial_size))
+        while True:  #keep sampling until a valid patch is found
+            indx = np.random.randint(0, np.prod(self.spatial_size))
+            inds = np.unravel_index(indx, self.spatial_size)
 
-        inds = np.unravel_index(indx, self.spatial_size)
+            center = self.coords[inds[0], inds[1], inds[2], :]
+            coords = torch.clone(self.patch_coords)
 
-        center = self.coords[inds[0], inds[1], inds[2], :]
-        coords = torch.clone(self.patch_coords)
+            coords[..., 0] = coords[..., 0] + center[0]
+            coords[..., 1] = coords[..., 1] + center[1]
+            coords[..., 2] = coords[..., 2] + center[2]
 
-        coords[..., 0] = coords[..., 0] + center[0]
-        coords[..., 1] = coords[..., 1] + center[1]
-        coords[..., 2] = coords[..., 2] + center[2]
-        return coords
+            if self.is_valid_patch(coords):
+                return coords
 
 
 class InrMorphDataModule:
@@ -99,15 +122,16 @@ class InrMorphDataModule:
                  num_patches: int,
                  val_split: float,
                  batch_size: int,
-                 image_shape: torch.Size):
+                 image: torch.Size):
         self.patch_size = patch_size
         self.num_patches = num_patches
         self.val_split = val_split
         self.batch_size = batch_size
-        self.image_shape = image_shape
+        self.image = image
+        self.image_shape = self.image.shape
 
         self.seed = 42
-        self.num_workers = 4
+        self.num_workers = 0
         self.drop_last = True
 
     def generator(self):
@@ -116,13 +140,13 @@ class InrMorphDataModule:
     # take all num_patches then divide after
     def dataloaders(self):
         dataset = CoordsPatch(patch_size=self.patch_size,
-                              num_patches=self.num_patches, img_shape=self.image_shape)
+                              num_patches=self.num_patches, image=self.image)
         # dataset above returns total number of patches
         val_size = int(self.val_split * len(dataset))
         train_size = len(dataset) - val_size
 
         # split patches based on val porportion
-        train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=self.generator()) #for reproducibility
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=self.generator()) #set seed for reproducibility
         train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
         train_loader = DataLoader(dataset=train_dataset, batch_size=self.batch_size, shuffle=True,
@@ -182,6 +206,8 @@ def define_coords(img_shape) -> torch.Tensor:
 def load_data(path: str, image) -> torch.Tensor:  # 260, 260, 200
     data = np.array(nib.load(path).get_fdata())
     data = torch.tensor(data, device=device, dtype=torch.float32)
+    # data = torch.tensor(data, dtype=torch.float32)
+
     if image:
         # normalize for only images, not labels/masks
         return normalise(data)

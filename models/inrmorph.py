@@ -9,6 +9,9 @@ from models.relu import ReLU
 from models.siren import Siren
 from utils import SpatialTransform, SpatioTemporalRegularization, MonotonicConstraint
 import lightning as pl
+from torch.optim.lr_scheduler import StepLR, LambdaLR
+
+
 
 class InrMorph(pl.LightningModule):
     def __init__(self,
@@ -30,6 +33,7 @@ class InrMorph(pl.LightningModule):
                  hidden_layers: int,
                  time_features: int,
                  hidden_features: int,
+                 num_epochs: int
                  ) -> None:
         super().__init__()
         self.I0 = I0
@@ -45,6 +49,7 @@ class InrMorph(pl.LightningModule):
         self.gradient_type = gradient_type
         self.lr = lr
         self.weight_decay = weight_decay
+        self.num_epochs = num_epochs
 
         self.ndims = len(self.patch_size)
         self.nsamples = len(self.It)
@@ -153,11 +158,46 @@ class InrMorph(pl.LightningModule):
 
         return displacement
 
-    def configure_optimizers(self):
-        # optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+    # def configure_optimizers(self):
+    #     optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
+    #     scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
+    #     return {
+    #         'optimizer': optimizer,
+    #         'lr_scheduler': {
+    #             'scheduler': scheduler,
+    #             'monitor': 'val_loss', 
+    #             'interval': 'epoch',
+    #             'frequency': 1     
+    #         }
+    #     }
+    #     return optimizer
 
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
         return optimizer
+
+    # start with high learning rate and decay to 1e-5
+    # def configure_optimizers(self):
+    #     optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
+
+    #     def lr_lambda(epoch):
+    #         start_lr = 1e-3
+    #         end_lr = 1e-5
+    #         total_epochs_schedule = self.num_epochs - 30 #introduce mono loss before last 30 epochs
+    #         factor = (end_lr / start_lr) ** (1 / total_epochs_schedule)
+    #         return factor ** epoch
+
+    #     scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+    #     return {
+    #         'optimizer': optimizer,
+    #         'lr_scheduler': {
+    #             'scheduler': scheduler,
+    #             'monitor': 'val_loss',
+    #             'interval': 'epoch',
+    #             'frequency': 1
+    #         }
+    #     }
+
 
     def compute_transform(self, coords, displacement):
         """
@@ -204,6 +244,7 @@ class InrMorph(pl.LightningModule):
         mono_loss = 0
         total_loss = 0
         similarity = 0
+        temporal_smoothness = 0
         spatial_smoothness = 0
         jac_det = torch.zeros(len(self.time.unique()), self.batch_size, self.flattened_patch_size).to(device)
         for idx, _ in enumerate(self.time.unique()):
@@ -217,7 +258,6 @@ class InrMorph(pl.LightningModule):
                 similarity_t = ncc
 
             similarity += similarity_t # for NCC plot
-            
             if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
                 #spatial
                 spatial_smoothness_t, jac_det[idx] = self.smoothness.spatial(deformation_field_t[idx], coords)
@@ -235,22 +275,24 @@ class InrMorph(pl.LightningModule):
             else:
                 #if spatial_reg_type is smoothness of rate of change, don't calculate independent smoothness
                 total_loss += similarity_t
-            
-        #condition for spatial smoothness in temporal rate of change
-        if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
-            temporal_smoothness = self.smoothness.temporal(deformation_field_t, coords) * self.temporal_reg_weight
-            total_loss += temporal_smoothness
-        else:
-            #spatial_smoothness below overrides the defined one above
-            temporal_smoothness, spatial_smoothness = self.smoothness.temporal(deformation_field_t, coords)
-            temporal_smoothness = temporal_smoothness * self.temporal_reg_weight
-            spatial_smoothness = spatial_smoothness * self.spatial_reg_weight
-            # temporal_smoothness = 0 #no temporal
-            total_loss += temporal_smoothness + spatial_smoothness
+    
+            # if self.optimizers().param_groups[0]['lr'] <= 1e-5:
+            if self.current_epoch >= 60: #start temporal and mono smoothness after 60 epochs
+                #condition for spatial smoothness in temporal rate of change
+                if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
+                    temporal_smoothness = self.smoothness.temporal(deformation_field_t, coords) * self.temporal_reg_weight
+                    total_loss += temporal_smoothness
+                else:
+                    #spatial_smoothness below overrides the defined one above
+                    temporal_smoothness, spatial_smoothness = self.smoothness.temporal(deformation_field_t, coords)
+                    temporal_smoothness = temporal_smoothness * self.temporal_reg_weight
+                    spatial_smoothness = spatial_smoothness * self.spatial_reg_weight
+                    # temporal_smoothness = 0 #no temporal
+                    total_loss += temporal_smoothness + spatial_smoothness
 
-        if jac_det != None: #will be None if gradient type is numeric
-            mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
-            total_loss += mono_loss
+                if jac_det != None: #will be None if gradient type is numeric
+                    mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
+                    total_loss += mono_loss
         print(
             "NCC: {}, Spatial smoothness: {}, Total loss: {}, Mono loss: {}, Temporal smoothness: {}".format(similarity, spatial_smoothness, total_loss,
                                                                             mono_loss, temporal_smoothness))

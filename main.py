@@ -12,7 +12,7 @@ def main():
         num_patches=args.num_patches,
         val_split=args.val_split,
         batch_size=args.batch_size,
-        image_shape=I0.shape
+        image=I0
     )
     train_generator, val_generator = data_module.dataloaders()
     model = InrMorph(
@@ -34,10 +34,10 @@ def main():
         hidden_layers=args.hidden_layers,
         time_features=args.time_features,
         hidden_features=args.hidden_features,
+        num_epochs=args.num_epochs,
     )
     trainer = Trainer(
-        # fast_dev_run=args.fast_dev_run,
-        fast_dev_run=False,
+        fast_dev_run=args.fast_dev_run,
         max_epochs=args.num_epochs,
         log_every_n_steps=num_steps_per_epoch,
         accelerator="auto",
