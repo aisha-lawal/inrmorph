@@ -177,8 +177,7 @@ def main_pipeline(
 
     # pass through model at observed timepoints
     print("##################EVALUATING###############")
-    gc.collect()
-    torch.cuda.empty_cache()
+
     evaluation(
         model_checkpoint=model_checkpoint,
         subject_datapath=subject_datapath,
@@ -194,9 +193,12 @@ def main_pipeline(
         patch_size=patch_size,
     )
     save_logger_name(logger_name)
+    #clean up
     wandb.finish()
     shutil.rmtree("wandb")
-    shutil.rmtree("logs")
+    shutil.rmtree("inrmorph")
+    gc.collect()
+    torch.cuda.empty_cache()
 
 
 def save_logger_name(logger_name):

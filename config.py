@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '5'
+os.environ["CUDA_VISIBLE_DEVICES"] = '6'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -186,8 +186,7 @@ def arg():
 
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
-                        # default=90,
-                        default=1,
+                        default=90,
                         help="total number of epochs")
 
     parser.add_argument("--gradient_type",
