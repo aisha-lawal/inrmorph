@@ -122,7 +122,7 @@ class InrMorphDataModule:
                  num_patches: int,
                  val_split: float,
                  batch_size: int,
-                 image: torch.Size):
+                 image: torch.Tensor):
         self.patch_size = patch_size
         self.num_patches = num_patches
         self.val_split = val_split
