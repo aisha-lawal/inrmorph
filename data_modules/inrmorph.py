@@ -115,6 +115,48 @@ class CoordsPatch(Dataset):
             if self.is_valid_patch(coords):
                 return coords
 
+# class CoordsPatch(Dataset):
+#     def __init__(self, patch_size, num_patches, img_shape):
+#         # super(self, CoordsPatch).__init__()
+#         self.patch_size = np.ceil(np.array(patch_size) / 2).astype(np.int16)
+#         self.ndims = len(self.patch_size)
+#         self.img_shape = img_shape
+#         self.coords = define_coords(self.img_shape)
+#         self.dx = torch.div(2, torch.tensor(self.coords.shape[:-1]))
+#         self.num_patches = num_patches  # how many random patches to sample
+#         self.set_seed = set_seed(42)
+#
+#         self.patch_size = np.ceil(np.array(patch_size) / 2).astype(np.int16)
+#         patch_dx_dims = torch.tensor(self.patch_size) * self.dx
+#
+#         patch_coords = [torch.linspace(-patch_dx_dims[i], patch_dx_dims[i],
+#                                        2 * self.patch_size[i]) for i in range(self.ndims)]
+#
+#         patch_coords = torch.meshgrid(*patch_coords, indexing=None)
+#         self.patch_coords = torch.stack(patch_coords, dim=self.ndims)
+#
+#         coords = self.coords[self.patch_size[0]:-self.patch_size[0],
+#                  self.patch_size[1]:-self.patch_size[1], self.patch_size[2]:-self.patch_size[2], ...]
+#
+#         self.spatial_size = coords.shape[:-1]
+#         self.coords = coords
+#
+#     def __len__(self):
+#         return self.num_patches
+#
+#     def __getitem__(self, idx):
+#
+#         indx = np.random.randint(0, np.prod(self.spatial_size))
+#
+#         inds = np.unravel_index(indx, self.spatial_size)
+#
+#         center = self.coords[inds[0], inds[1], inds[2], :]
+#         coords = torch.clone(self.patch_coords)
+#
+#         coords[..., 0] = coords[..., 0] + center[0]
+#         coords[..., 1] = coords[..., 1] + center[1]
+#         coords[..., 2] = coords[..., 2] + center[2]
+#         return coords
 
 class InrMorphDataModule:
     def __init__(self,
