@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '6'
+os.environ["CUDA_VISIBLE_DEVICES"] = '5'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -84,6 +84,13 @@ def arg():
                         default=False,
                         help="fast_dev_run")
 
+    parser.add_argument("--add_noise",
+                        type=bool,
+                        dest="add_noise",
+                        # default=False,
+                        required=True,
+                        help="add gaussian noise to follow up scans")
+
     parser.add_argument("--resolution", type=int,
                         dest="resolution",
                         default='50',
@@ -117,7 +124,7 @@ def arg():
 
     parser.add_argument("--subjectID", type=str,
                         dest="subjectID",
-                        # default="AD/005_S_0814",
+                        default="AD/005_S_0814",
                         required=False,
                         help="subject to train, include patient type")
     
@@ -181,12 +188,13 @@ def arg():
 
     parser.add_argument("--num_patches", type=int,
                         dest="num_patches",
-                        default=1200,
+                        # default=1200,
+                        default=2500,
                         help="total number of patches to be sampled for both train and val")
 
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
-                        default=90,
+                        default=120,
                         help="total number of epochs")
 
     parser.add_argument("--gradient_type",
@@ -225,7 +233,7 @@ def wandb_setup():
         log_model=True,
     )
     # if not args.fast_dev_run:
-    # logger.experiment.log_code()
+    logger.experiment.log_code()
     return model_checkpoint, logger
 
 

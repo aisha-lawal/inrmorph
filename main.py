@@ -67,6 +67,7 @@ def main():
         time_features=args.time_features,
         hidden_features=args.hidden_features,
         time_points=time_points,
+        add_noise=args.add_noise,
     )
     logger.log_hyperparams(model_params)
 
@@ -85,7 +86,7 @@ if __name__ == "__main__":
     datapath = args.datapath + args.subjectID + "/resampled/"
     print("data path: ", datapath)
     data = sorted(glob.glob(datapath + "I*.nii"))
-    images = define_resolution(data=data, image=True, scale_factor=args.scale_factor)
+    images = define_resolution(data=data, image=True, add_noise=args.add_noise, scale_factor=args.scale_factor)
 
     """
     Retrieve time points
@@ -97,7 +98,6 @@ if __name__ == "__main__":
     normalised_time_points = time_points / 12
     I0 = images[0]  # moving #260, 260, 200
     It = images
-    
     print("######################Registering {} across time: {} in years##################".format(datapath, time_points))
     patch_size = [args.patch_size for _ in range(len(I0.shape))]
     main()

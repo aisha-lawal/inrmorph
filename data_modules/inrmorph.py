@@ -245,19 +245,22 @@ def define_coords(img_shape) -> torch.Tensor:
 
 ################DATA LOADING AND ###########
 
-def load_data(path: str, image) -> torch.Tensor:  # 260, 260, 200
+def load_data(path: str, image, add_noise) -> torch.Tensor:  # 260, 260, 200
     data = np.array(nib.load(path).get_fdata())
     data = torch.tensor(data, device=device, dtype=torch.float32)
-    # data = torch.tensor(data, dtype=torch.float32)
-
     if image:
         # normalize for only images, not labels/masks
-        return normalise(data)
+        data = normalise(data)
+    if add_noise:
+        #add gaussian noise to follwup scans
+        noise = np.random.normal(0, 0.1, data.shape)
+        data = data + torch.tensor(noise, device=device, dtype=torch.float32)
+        data = torch.clip(data, -1, 1) 
     return data
 
 
-def define_resolution(data, image: bool, scale_factor):
-    data = [load_data(img, image) for img in data]
+def define_resolution(data: list, image: bool, add_noise: bool, scale_factor: float):
+    data = [load_data(img, image, add_noise=(add_noise and i != 0)) for i, img in enumerate(data)]
 
     # F.interpolate has to be of batch, channel, D, H, W, so we stack below
     if scale_factor != 1:
