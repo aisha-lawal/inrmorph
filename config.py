@@ -84,6 +84,12 @@ def arg():
                         default=False,
                         help="fast_dev_run")
 
+    parser.add_argument("--extrapolate",
+                        type=bool,
+                        dest="extrapolate",
+                        default=False,
+                        help="extrapolate beyong observed timepoint")
+
     parser.add_argument("--add_noise",
                         type=bool,
                         dest="add_noise",

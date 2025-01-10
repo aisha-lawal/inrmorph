@@ -27,13 +27,15 @@ class InrMorph(pl.LightningModule):
                  similarity_metric: str,
                  gradient_type: str,
                  time: Tensor,
+                 observed_time_points: Tensor,
                  lr: float,
                  weight_decay: float,
                  omega_0: float,
                  hidden_layers: int,
                  time_features: int,
                  hidden_features: int,
-                 num_epochs: int
+                 num_epochs: int,
+                 extrapolate: bool,
                  ) -> None:
         super().__init__()
         self.I0 = I0
@@ -47,9 +49,11 @@ class InrMorph(pl.LightningModule):
         self.network_type = network_type
         self.similarity_metric = similarity_metric
         self.gradient_type = gradient_type
+        self.observed_time_points = observed_time_points
         self.lr = lr
         self.weight_decay = weight_decay
         self.num_epochs = num_epochs
+        self.extrapolate = extrapolate
 
         self.ndims = len(self.patch_size)
         self.nsamples = len(self.It)
@@ -218,7 +222,7 @@ class InrMorph(pl.LightningModule):
         for idx, t in enumerate(self.time.unique()):
             deformation_field_t.append(torch.add(displacement[idx],
                                                  coords))  # apply the displacement relative to the baseline coordinate (coords)
-            if idx != 0:
+            if idx != 0 and t in self.observed_time_points: #we dont warp extrapolated points
                 warped_t.append(
                     self.transform.trilinear_interpolation(coords=deformation_field_t[idx], img=self.It[idx]).view(
                         self.batch_size, *self.patch_size))
@@ -247,12 +251,17 @@ class InrMorph(pl.LightningModule):
         temporal_smoothness = 0
         spatial_smoothness = 0
         jac_det = torch.zeros(len(self.time.unique()), self.batch_size, self.flattened_patch_size).to(device)
-        for idx, _ in enumerate(self.time.unique()):
+        for idx, tm in enumerate(self.time.unique()):
             if idx == 0:
                 dx = deformation_field_t[idx][:, :, 0] - coords[:, :, 0]  # shape [batch_size, flattenedpatch, ndims]
                 dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
                 dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
-                similarity_t = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
+                # similarity_t = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
+                similarity_t = torch.mean(torch.sqrt(dx**2 + dy**2 + dz**2)) #l2 norm
+            
+            #for extrapolated points, compute the regularization alone
+            elif tm not in self.observed_time_points:
+                similarity_t = 0
             else:
                 ncc = self.ncc_loss(warped_t[idx - 1], fixed)
                 similarity_t = ncc

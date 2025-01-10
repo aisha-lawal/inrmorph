@@ -28,6 +28,7 @@ def main():
         similarity_metric=args.similarity_metric,
         gradient_type=args.gradient_type,
         time=normalised_time_points,
+        observed_time_points=observed_time_points,
         lr=args.lr,
         weight_decay=args.weight_decay,
         omega_0=args.omega_0,
@@ -35,6 +36,7 @@ def main():
         time_features=args.time_features,
         hidden_features=args.hidden_features,
         num_epochs=args.num_epochs,
+        extrapolate=args.extrapolate,
     )
     trainer = Trainer(
         fast_dev_run=args.fast_dev_run,
@@ -68,6 +70,7 @@ def main():
         hidden_features=args.hidden_features,
         time_points=time_points,
         add_noise=args.add_noise,
+        extrapolate=args.extrapolate,
     )
     logger.log_hyperparams(model_params)
 
@@ -93,11 +96,20 @@ if __name__ == "__main__":
     """
     print("image shape: ", images[0].shape)
     num_steps_per_epoch = args.num_patches // args.batch_size
+    I0 = images[0]  # moving #260, 260, 200
+    It = images 
+    #save images if add_noise is True
+    
+
     time_points = get_time_points(data)
     time_points = torch.tensor(time_points, device=device, dtype=torch.float32)
+    observed_time_points = time_points / 12
+    #extrapolating last time point, 6 and 12 months after last time point
+    if args.extrapolate: 
+        time_points = torch.cat((time_points, torch.tensor([time_points[-1] + 6, time_points[-1] + 12],  dtype=torch.float32)))
+        It=It[:-1]
     normalised_time_points = time_points / 12
-    I0 = images[0]  # moving #260, 260, 200
-    It = images
+   
     print("######################Registering {} across time: {} in years##################".format(datapath, time_points))
     patch_size = [args.patch_size for _ in range(len(I0.shape))]
     main()
