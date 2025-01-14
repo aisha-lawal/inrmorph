@@ -2,8 +2,9 @@ import glob
 import torch
 from lightning import Trainer
 from config import save_logger_name, arg, wandb_setup, device
-from data_modules.inrmorph import InrMorphDataModule, define_resolution, get_time_points
+from data_modules.inrmorph import InrMorphDataModule, define_resolution, get_time_points, save_noisy_data
 from models.inrmorph import InrMorph
+import os
 
 
 def main():
@@ -72,10 +73,10 @@ def main():
         add_noise=args.add_noise,
         extrapolate=args.extrapolate,
     )
-    logger.log_hyperparams(model_params)
+    # logger.log_hyperparams(model_params)
 
     print("######################Training##################")
-    logger.watch(model=model, log_freq=10, log_graph=True)
+    # logger.watch(model=model, log_freq=10, log_graph=True)
     trainer.fit(model=model, train_dataloaders=train_generator, val_dataloaders=val_generator)
     save_logger_name(args.logger_name)
 
@@ -98,15 +99,20 @@ if __name__ == "__main__":
     num_steps_per_epoch = args.num_patches // args.batch_size
     I0 = images[0]  # moving #260, 260, 200
     It = images 
-    #save images if add_noise is True
-    
+
+    #save images if add_noise is True to use for eval later
+    if args.add_noise:
+        output_dir = os.path.join("eval/noisy_data/", args.subjectID)
+        os.makedirs(output_dir, exist_ok=True)
+        save_noisy_data(data, images, output_dir)
 
     time_points = get_time_points(data)
     time_points = torch.tensor(time_points, device=device, dtype=torch.float32)
     observed_time_points = time_points / 12
     #extrapolating last time point, 6 and 12 months after last time point
     if args.extrapolate: 
-        time_points = torch.cat((time_points, torch.tensor([time_points[-1] + 6, time_points[-1] + 12],  dtype=torch.float32)))
+        observed_time_points = time_points[:-1] / 12 #exclude last time point so we compute the dice at eval time
+        # time_points = torch.cat((time_points, torch.tensor([time_points[-1] + 6, time_points[-1] + 12], device=device,  dtype=torch.float32)))
         It=It[:-1]
     normalised_time_points = time_points / 12
    

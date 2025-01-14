@@ -10,6 +10,7 @@ from models.siren import Siren
 from utils import SpatialTransform, SpatioTemporalRegularization, MonotonicConstraint
 import lightning as pl
 from torch.optim.lr_scheduler import StepLR, LambdaLR
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 
 
@@ -82,7 +83,6 @@ class InrMorph(pl.LightningModule):
                                                  self.batch_size, self.time, self.spatial_reg_type)
 
         self.monotonic_constraint = MonotonicConstraint(self.patch_size, self.batch_size, self.time, self.gradient_type)
-        print(self.network_type)
         if self.network_type == NetworkType.FINER:
 
             self.mapping = Finer(in_features=self.in_features, out_features=self.out_features,
@@ -218,7 +218,6 @@ class InrMorph(pl.LightningModule):
         warped_t = []
         fixed = self.transform.trilinear_interpolation(coords=coords, img=self.I0).view(self.batch_size,
                                                                                         *self.patch_size)  # to reshape as a patch
-
         for idx, t in enumerate(self.time.unique()):
             deformation_field_t.append(torch.add(displacement[idx],
                                                  coords))  # apply the displacement relative to the baseline coordinate (coords)
@@ -226,6 +225,7 @@ class InrMorph(pl.LightningModule):
                 warped_t.append(
                     self.transform.trilinear_interpolation(coords=deformation_field_t[idx], img=self.It[idx]).view(
                         self.batch_size, *self.patch_size))
+       
         return warped_t, fixed, deformation_field_t
 
     def compute_loss(self, warped_t, fixed, deformation_field_t, coords):
@@ -286,7 +286,7 @@ class InrMorph(pl.LightningModule):
                 total_loss += similarity_t
     
             # if self.optimizers().param_groups[0]['lr'] <= 1e-5:
-            if self.current_epoch >= 60: #start temporal and mono smoothness after 60 epochs
+            if self.current_epoch < 200: #start temporal and mono smoothness after 60 epochs
                 #condition for spatial smoothness in temporal rate of change
                 if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
                     temporal_smoothness = self.smoothness.temporal(deformation_field_t, coords) * self.temporal_reg_weight

@@ -79,7 +79,7 @@ def arg():
                         help="training/sanity_check/overfitting")
 
     parser.add_argument("--fast_dev_run",
-                        type=bool,
+                        type=bool, #with arg parse passing a value is equivalent to passing True
                         dest="fast_dev_run",
                         default=False,
                         help="fast_dev_run")
@@ -88,13 +88,12 @@ def arg():
                         type=bool,
                         dest="extrapolate",
                         default=False,
-                        help="extrapolate beyong observed timepoint")
+                        help="extrapolate beyond observed timepoint")
 
     parser.add_argument("--add_noise",
                         type=bool,
                         dest="add_noise",
-                        # default=False,
-                        required=True,
+                        default=False,
                         help="add gaussian noise to follow up scans")
 
     parser.add_argument("--resolution", type=int,
@@ -195,12 +194,12 @@ def arg():
     parser.add_argument("--num_patches", type=int,
                         dest="num_patches",
                         # default=1200,
-                        default=2500,
+                        default=2000,
                         help="total number of patches to be sampled for both train and val")
 
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
-                        default=120,
+                        default=150,
                         help="total number of epochs")
 
     parser.add_argument("--gradient_type",
@@ -211,8 +210,9 @@ def arg():
 
     args = parser.parse_args()
     args.batch_size = 48 if args.gradient_type == "finite_difference" else 12
-
+    # args.batch_size = 48 if args.gradient_type == "finite_difference" else 4
     #set LR and
+    print(f"args: {args.extrapolate, args.add_noise}")
     return args
 
 
@@ -226,6 +226,15 @@ def wandb_setup():
         monitor="val_loss",
         mode="min",
     )
+
+    # model_checkpoint = DelayedModelCheckpoint(
+    # start_epoch=75, #start checking after 70 epochs
+    # filename="{val_loss:.5f}-{epoch:02d}-" + "_" + args.logger_name,
+    # save_top_k=1,
+    # save_last=True,
+    # monitor="val_loss",
+    # mode="min",
+    # )
 
     early_stopping = EarlyStopping(
         monitor="val_loss",
@@ -248,3 +257,14 @@ def save_logger_name(logger_name):
         f.write(logger_name)
         f.write('\n')
     f.close()
+
+
+#delay checkpointing until after a certain epoch
+class DelayedModelCheckpoint(ModelCheckpoint):
+    def __init__(self, start_epoch, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.start_epoch = start_epoch
+
+    def on_validation_end(self, trainer, pl_module):
+        if trainer.current_epoch >= self.start_epoch:
+            super().on_validation_end(trainer, pl_module)

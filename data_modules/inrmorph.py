@@ -8,6 +8,7 @@ from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn import functional as F
 import nibabel as nib
 from config import device, set_seed
+import os
 
 
 # training is patchwise, val/test is full image!
@@ -243,7 +244,7 @@ def define_coords(img_shape) -> torch.Tensor:
     return coords
 
 
-################DATA LOADING AND ###########
+################DATA LOADING AND TIME POINTS ###########
 
 def load_data(path: str, image, add_noise) -> torch.Tensor:  # 260, 260, 200
     data = np.array(nib.load(path).get_fdata())
@@ -256,6 +257,7 @@ def load_data(path: str, image, add_noise) -> torch.Tensor:  # 260, 260, 200
         noise = np.random.normal(0, 0.1, data.shape)
         data = data + torch.tensor(noise, device=device, dtype=torch.float32)
         data = torch.clip(data, -1, 1) 
+        # print(data.mean(), data.min(), data.max())
     return data
 
 
@@ -274,6 +276,16 @@ def define_resolution(data: list, image: bool, add_noise: bool, scale_factor: fl
         return data
     return data
 
+def save_noisy_data(data, images, output_dir):
+    for original_path, image_tensor in zip(data, images):
+            # extract the original filename (e.g., "I0_2011_08_10.nii")
+            filename = os.path.basename(original_path)
+            output_path = os.path.join(output_dir, filename)
+            image_np = image_tensor.cpu().numpy()
+            
+            affine = np.eye(4)
+            nifti_img = nib.Nifti1Image(image_np, affine)
+            nib.save(nifti_img, output_path)
 
 def normalise(img: torch.Tensor) -> torch.Tensor:
     img = (img - img.min()) / (img.max() - img.min())
