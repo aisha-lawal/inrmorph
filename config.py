@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '5'
+os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -90,6 +90,12 @@ def arg():
                         default=False,
                         help="extrapolate beyond observed timepoint")
 
+    parser.add_argument("--interpolate",
+                        type=bool,
+                        dest="interpolate",
+                        default=False,
+                        help="interpolate between observed timepoint")
+
     parser.add_argument("--add_noise",
                         type=bool,
                         dest="add_noise",
@@ -116,6 +122,11 @@ def arg():
                         default=0.01,
                         # default=1.0, #use for spatial_rate_of_temporal_change
                         help="weight for spatial regularization")
+
+    parser.add_argument("--l2_weight", type=float,
+                        dest="l2_weight",
+                        default=10,
+                        help="l2 regularization weight")
 
     parser.add_argument("--temporal_reg", type=float,
                         dest="temporal_reg",
@@ -194,7 +205,7 @@ def arg():
     parser.add_argument("--num_patches", type=int,
                         dest="num_patches",
                         # default=1200,
-                        default=2000,
+                        default=3000,
                         help="total number of patches to be sampled for both train and val")
 
     parser.add_argument("--num_epochs", type=int,

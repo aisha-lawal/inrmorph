@@ -38,6 +38,7 @@ def main():
         hidden_features=args.hidden_features,
         num_epochs=args.num_epochs,
         extrapolate=args.extrapolate,
+        l2_weight=args.l2_weight,
     )
     trainer = Trainer(
         fast_dev_run=args.fast_dev_run,
@@ -72,6 +73,8 @@ def main():
         time_points=time_points,
         add_noise=args.add_noise,
         extrapolate=args.extrapolate,
+        interpolate=args.interpolate,
+        l2_weight=args.l2_weight,
     )
     # logger.log_hyperparams(model_params)
 
@@ -105,6 +108,11 @@ if __name__ == "__main__":
         output_dir = os.path.join("eval/noisy_data/", args.subjectID)
         os.makedirs(output_dir, exist_ok=True)
         save_noisy_data(data, images, output_dir)
+
+    if args.interpolate: 
+        time_points = [0, 13, 24]
+        It=[It[0], It[1], It[-1]]
+
 
     time_points = get_time_points(data)
     time_points = torch.tensor(time_points, device=device, dtype=torch.float32)

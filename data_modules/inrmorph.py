@@ -50,6 +50,72 @@ class CoordsPatchesTrain(Dataset):
         return self.coords[idx]
 
 
+# class CoordsPatch(Dataset):
+#     def __init__(self, patch_size, num_patches, image):
+#         # super(self, CoordsPatch).__init__()
+#         self.patch_size = np.ceil(np.array(patch_size) / 2).astype(np.int16)
+#         self.ndims = len(self.patch_size)
+#         self.image = image
+#         self.img_shape = self.image.shape
+#         self.coords = define_coords(self.img_shape)
+#         self.dx = torch.div(2, torch.tensor(self.coords.shape[:-1]))
+#         self.num_patches = num_patches  # how many random patches to sample
+#         self.set_seed = set_seed(42)
+
+#         self.patch_size = np.ceil(np.array(patch_size) / 2).astype(np.int16)
+#         patch_dx_dims = torch.tensor(self.patch_size) * self.dx
+
+#         patch_coords = [torch.linspace(-patch_dx_dims[i], patch_dx_dims[i],
+#                                        2 * self.patch_size[i]) for i in range(self.ndims)]
+
+#         patch_coords = torch.meshgrid(*patch_coords, indexing=None)
+#         self.patch_coords = torch.stack(patch_coords, dim=self.ndims)
+
+#         coords = self.coords[self.patch_size[0]:-self.patch_size[0],
+#                  self.patch_size[1]:-self.patch_size[1], self.patch_size[2]:-self.patch_size[2], ...]
+
+#         self.spatial_size = coords.shape[:-1]
+#         self.coords = coords
+
+#     def __len__(self):
+#         return self.num_patches
+
+
+#     def is_valid_patch(self, coords):
+#         """
+#         check if a patch is valid by sampling voxel values from the image.
+#         The image and coordinates are both normalized to [-1, 1].
+#         """
+#         #clamp coordinates to the range [-1, 1] to avoid out-of-bound errors
+#         clamped_coords = coords.clamp(-1, 1)
+#         #mapping coordinates to image voxel indices
+#         voxel_indices = ((clamped_coords + 1) / 2 * torch.tensor(self.img_shape, dtype=torch.float32, device='cpu')).long()
+#         #ensure voxel_indices are within bounds for edge cases - image shape is between 0 and img_shape - 1
+#         voxel_indices = voxel_indices.clamp(0, torch.tensor(max(self.img_shape), dtype=torch.int64, device='cpu') - 1)
+#         #extract voxel values using voxel_indices
+#         voxel_values = self.image[tuple(voxel_indices.T)]  #transpose to match tensor shape
+#         #the proportion of zero values in the patch
+#         num_zeros = (voxel_values == 0).sum().item()
+#         zero_ratio = num_zeros / voxel_values.numel()
+#         return zero_ratio < 0.9 #dont reject the patch if less than 90% of voxels are zero
+       
+
+#     def __getitem__(self, idx):
+
+#         while True:  #keep sampling until a valid patch is found
+#             indx = np.random.randint(0, np.prod(self.spatial_size))
+#             inds = np.unravel_index(indx, self.spatial_size)
+
+#             center = self.coords[inds[0], inds[1], inds[2], :]
+#             coords = torch.clone(self.patch_coords)
+
+#             coords[..., 0] = coords[..., 0] + center[0]
+#             coords[..., 1] = coords[..., 1] + center[1]
+#             coords[..., 2] = coords[..., 2] + center[2]
+
+#             if self.is_valid_patch(coords):
+#                 return coords
+
 class CoordsPatch(Dataset):
     def __init__(self, patch_size, num_patches, image):
         # super(self, CoordsPatch).__init__()
@@ -80,84 +146,19 @@ class CoordsPatch(Dataset):
     def __len__(self):
         return self.num_patches
 
-
-    def is_valid_patch(self, coords):
-        """
-        check if a patch is valid by sampling voxel values from the image.
-        The image and coordinates are both normalized to [-1, 1].
-        """
-        #clamp coordinates to the range [-1, 1] to avoid out-of-bound errors
-        clamped_coords = coords.clamp(-1, 1)
-        #mapping coordinates to image voxel indices
-        voxel_indices = ((clamped_coords + 1) / 2 * torch.tensor(self.img_shape, dtype=torch.float32, device='cpu')).long()
-        #ensure voxel_indices are within bounds for edge cases - image shape is between 0 and img_shape - 1
-        voxel_indices = voxel_indices.clamp(0, torch.tensor(max(self.img_shape), dtype=torch.int64, device='cpu') - 1)
-        #extract voxel values using voxel_indices
-        voxel_values = self.image[tuple(voxel_indices.T)]  #transpose to match tensor shape
-        #the proportion of zero values in the patch
-        num_zeros = (voxel_values == 0).sum().item()
-        zero_ratio = num_zeros / voxel_values.numel()
-        return zero_ratio < 0.9 #dont reject the patch if less than 90% of voxels are zero
-       
-
     def __getitem__(self, idx):
 
-        while True:  #keep sampling until a valid patch is found
-            indx = np.random.randint(0, np.prod(self.spatial_size))
-            inds = np.unravel_index(indx, self.spatial_size)
+        indx = np.random.randint(0, np.prod(self.spatial_size))
 
-            center = self.coords[inds[0], inds[1], inds[2], :]
-            coords = torch.clone(self.patch_coords)
+        inds = np.unravel_index(indx, self.spatial_size)
 
-            coords[..., 0] = coords[..., 0] + center[0]
-            coords[..., 1] = coords[..., 1] + center[1]
-            coords[..., 2] = coords[..., 2] + center[2]
+        center = self.coords[inds[0], inds[1], inds[2], :]
+        coords = torch.clone(self.patch_coords)
 
-            if self.is_valid_patch(coords):
-                return coords
-
-# class CoordsPatch(Dataset):
-#     def __init__(self, patch_size, num_patches, img_shape):
-#         # super(self, CoordsPatch).__init__()
-#         self.patch_size = np.ceil(np.array(patch_size) / 2).astype(np.int16)
-#         self.ndims = len(self.patch_size)
-#         self.img_shape = img_shape
-#         self.coords = define_coords(self.img_shape)
-#         self.dx = torch.div(2, torch.tensor(self.coords.shape[:-1]))
-#         self.num_patches = num_patches  # how many random patches to sample
-#         self.set_seed = set_seed(42)
-#
-#         self.patch_size = np.ceil(np.array(patch_size) / 2).astype(np.int16)
-#         patch_dx_dims = torch.tensor(self.patch_size) * self.dx
-#
-#         patch_coords = [torch.linspace(-patch_dx_dims[i], patch_dx_dims[i],
-#                                        2 * self.patch_size[i]) for i in range(self.ndims)]
-#
-#         patch_coords = torch.meshgrid(*patch_coords, indexing=None)
-#         self.patch_coords = torch.stack(patch_coords, dim=self.ndims)
-#
-#         coords = self.coords[self.patch_size[0]:-self.patch_size[0],
-#                  self.patch_size[1]:-self.patch_size[1], self.patch_size[2]:-self.patch_size[2], ...]
-#
-#         self.spatial_size = coords.shape[:-1]
-#         self.coords = coords
-#
-#     def __len__(self):
-#         return self.num_patches
-#
-#     def __getitem__(self, idx):
-#
-#         indx = np.random.randint(0, np.prod(self.spatial_size))
-#
-#         inds = np.unravel_index(indx, self.spatial_size)
-#
-#         center = self.coords[inds[0], inds[1], inds[2], :]
-#         coords = torch.clone(self.patch_coords)
-#
-#         coords[..., 0] = coords[..., 0] + center[0]
-#         coords[..., 1] = coords[..., 1] + center[1]
-#         coords[..., 2] = coords[..., 2] + center[2]
-#         return coords
+        coords[..., 0] = coords[..., 0] + center[0]
+        coords[..., 1] = coords[..., 1] + center[1]
+        coords[..., 2] = coords[..., 2] + center[2]
+        return coords
 
 class InrMorphDataModule:
     def __init__(self,

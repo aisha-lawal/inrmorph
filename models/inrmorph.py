@@ -37,6 +37,7 @@ class InrMorph(pl.LightningModule):
                  hidden_features: int,
                  num_epochs: int,
                  extrapolate: bool,
+                 l2_weight: float
                  ) -> None:
         super().__init__()
         self.I0 = I0
@@ -55,6 +56,7 @@ class InrMorph(pl.LightningModule):
         self.weight_decay = weight_decay
         self.num_epochs = num_epochs
         self.extrapolate = extrapolate
+        self.l2_weight = 10
 
         self.ndims = len(self.patch_size)
         self.nsamples = len(self.It)
@@ -257,8 +259,8 @@ class InrMorph(pl.LightningModule):
                 dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
                 dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
                 # similarity_t = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
-                similarity_t = torch.mean(torch.sqrt(dx**2 + dy**2 + dz**2)) #l2 norm
-            
+                similarity_t = self.l2_weight * torch.mean(torch.sqrt(dx**2 + dy**2 + dz**2)) #l2 norm
+                print(f"similarity at 0 is {similarity_t}")
             #for extrapolated points, compute the regularization alone
             elif tm not in self.observed_time_points:
                 similarity_t = 0
