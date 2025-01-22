@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '7'
+os.environ["CUDA_VISIBLE_DEVICES"] = '2'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -125,7 +125,7 @@ def arg():
 
     parser.add_argument("--l2_weight", type=float,
                         dest="l2_weight",
-                        default=10,
+                        default=100,
                         help="l2 regularization weight")
 
     parser.add_argument("--temporal_reg", type=float,
@@ -136,6 +136,7 @@ def arg():
     parser.add_argument("--monotonicity_reg", type=float,
                         dest="monotonicity_reg",
                         default=0.5, 
+                        # default=0.2,
                         help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
@@ -197,21 +198,31 @@ def arg():
                         default=256,
                         help="number of hidden units per layer, this is scaled when concatenated with time features")
 
-    parser.add_argument("--time_features", type=float,
+    parser.add_argument("--time_features", type=int,
                         dest="time_features",
                         default=64,
                         help="number of time features")
 
     parser.add_argument("--num_patches", type=int,
                         dest="num_patches",
-                        # default=1200,
-                        default=3000,
+                        default=2000,
+                        # default=3000,
                         help="total number of patches to be sampled for both train and val")
 
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
                         default=150,
                         help="total number of epochs")
+
+    parser.add_argument("--noise_std", type=float,
+                        dest="noise_std",
+                        default=0.1,
+                        help="standard deviation of gaussian noise")
+
+    parser.add_argument("--noise_mean", type=float,
+                        dest="noise_mean",
+                        default=0.0,
+                        help="mean of gaussian noise")
 
     parser.add_argument("--gradient_type",
                         type=lambda s: GradientType(s),
@@ -221,7 +232,7 @@ def arg():
 
     args = parser.parse_args()
     args.batch_size = 48 if args.gradient_type == "finite_difference" else 12
-    # args.batch_size = 48 if args.gradient_type == "finite_difference" else 4
+    # args.batch_size = 48 if args.gradient_type == "finite_difference" else 8
     #set LR and
     print(f"args: {args.extrapolate, args.add_noise}")
     return args

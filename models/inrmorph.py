@@ -56,7 +56,7 @@ class InrMorph(pl.LightningModule):
         self.weight_decay = weight_decay
         self.num_epochs = num_epochs
         self.extrapolate = extrapolate
-        self.l2_weight = 10
+        self.l2_weight = l2_weight
 
         self.ndims = len(self.patch_size)
         self.nsamples = len(self.It)
@@ -136,10 +136,11 @@ class InrMorph(pl.LightningModule):
         displacement_t = self.forward(coords)
         warped_t, fixed, deformation_field_t = self.compute_transform(coords, displacement_t)
 
-        ncc, spatial_smoothness, loss, mono_loss, temporal_smoothness = self.compute_loss(warped_t,
+        similarity_at_0, ncc, spatial_smoothness, loss, mono_loss, temporal_smoothness = self.compute_loss(warped_t,
                                                                                           fixed, deformation_field_t, coords)
 
         metrics = {
+            f"{process}_similarity_at_0": similarity_at_0,
             f"{process}_ncc": ncc,
             f"{process}_spatial_smoothness": spatial_smoothness,
             f"{process}_loss": loss,
@@ -223,11 +224,16 @@ class InrMorph(pl.LightningModule):
         for idx, t in enumerate(self.time.unique()):
             deformation_field_t.append(torch.add(displacement[idx],
                                                  coords))  # apply the displacement relative to the baseline coordinate (coords)
-            if idx != 0 and t in self.observed_time_points: #we dont warp extrapolated points
+            if idx != 0 and t in self.observed_time_points: #we dont warp extrapolated and interpolated points
+                #get timepoint ids relative to the displacement field and observed ids
+                # indexes arent same because we have to consider the timepoints we are observing 
+                disp_id = self.time.unique().tolist().index(t)
+                observed_id = self.observed_time_points.index(t)
+                # print(f"id is {disp_id, observed_id}, tm is {t}")
                 warped_t.append(
-                    self.transform.trilinear_interpolation(coords=deformation_field_t[idx], img=self.It[idx]).view(
+                    self.transform.trilinear_interpolation(coords=deformation_field_t[disp_id], img=self.It[observed_id]).view(
                         self.batch_size, *self.patch_size))
-       
+            # print(f"warped_t length is {len(warped_t), len(deformation_field_t)}")
         return warped_t, fixed, deformation_field_t
 
     def compute_loss(self, warped_t, fixed, deformation_field_t, coords):
@@ -258,17 +264,24 @@ class InrMorph(pl.LightningModule):
                 dx = deformation_field_t[idx][:, :, 0] - coords[:, :, 0]  # shape [batch_size, flattenedpatch, ndims]
                 dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
                 dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
-                # similarity_t = (torch.mean(dx * dx) + torch.mean(dy * dy) + torch.mean(dz * dz)) / 3
-                similarity_t = self.l2_weight * torch.mean(torch.sqrt(dx**2 + dy**2 + dz**2)) #l2 norm
-                print(f"similarity at 0 is {similarity_t}")
-            #for extrapolated points, compute the regularization alone
+                similarity_at_0 = self.l2_weight * torch.mean(torch.sqrt(dx**2 + dy**2 + dz**2)) #l2 norm
+                similarity_t = similarity_at_0
+
+                # similarity += similarity_t # for NCC plot, get rid of this if getting rid  of continue
+                # continue #dont regularize at time 0
+            #for extrapolated point and interpolated points compute the regularization alone, 
+            #we dont observe data at this point but we can generate deformation field
             elif tm not in self.observed_time_points:
                 similarity_t = 0
             else:
-                ncc = self.ncc_loss(warped_t[idx - 1], fixed)
+                observed_id = self.observed_time_points.index(tm)
+                # print(f"id is {observed_id}, tm is {tm}")
+                ncc = self.ncc_loss(warped_t[observed_id - 1], fixed) #we start from 1 because we dont have warped_t at 0
                 similarity_t = ncc
 
             similarity += similarity_t # for NCC plot
+            
+    
             if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
                 #spatial
                 spatial_smoothness_t, jac_det[idx] = self.smoothness.spatial(deformation_field_t[idx], coords)
@@ -301,13 +314,13 @@ class InrMorph(pl.LightningModule):
                     # temporal_smoothness = 0 #no temporal
                     total_loss += temporal_smoothness + spatial_smoothness
 
-                if jac_det != None: #will be None if gradient type is numeric
+                if jac_det != None: #will be None if gradient type is numerical approx
                     mono_loss = self.monotonic_constraint.forward(jac_det) * self.monotonicity_reg_weight
                     total_loss += mono_loss
         print(
-            "NCC: {}, Spatial smoothness: {}, Total loss: {}, Mono loss: {}, Temporal smoothness: {}".format(similarity, spatial_smoothness, total_loss,
+            "Similarity at 0: {}, NCC: {}, Spatial smoothness: {}, Total loss: {}, Mono loss: {}, Temporal smoothness: {}".format(similarity_at_0, similarity, spatial_smoothness, total_loss,
                                                                             mono_loss, temporal_smoothness))
-        return similarity, spatial_smoothness, total_loss, mono_loss, temporal_smoothness
+        return similarity_at_0, similarity, spatial_smoothness, total_loss, mono_loss, temporal_smoothness
 
     def mse_loss(self, predicted, target):
         return torch.mean((target - predicted) ** 2)
