@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '2'
+os.environ["CUDA_VISIBLE_DEVICES"] = '5'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -119,24 +119,29 @@ def arg():
 
     parser.add_argument("--spatial_reg", type=float,
                         dest="spatial_reg",
-                        default=0.01,
+                        # default=0.01, #current default
+                        default=0.1,
                         # default=1.0, #use for spatial_rate_of_temporal_change
                         help="weight for spatial regularization")
 
     parser.add_argument("--l2_weight", type=float,
                         dest="l2_weight",
                         default=100,
+                        # default=50,
                         help="l2 regularization weight")
 
     parser.add_argument("--temporal_reg", type=float,
                         dest="temporal_reg",
-                        default=1.0,
+                        # default=1.0,
+                        # default=0.1,
+                        default=10,
+
                         help="weight for temporal regularization")
 
     parser.add_argument("--monotonicity_reg", type=float,
                         dest="monotonicity_reg",
-                        default=0.5, 
-                        # default=0.2,
+                        default=0.1, 
+                        # default=1.0,
                         help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
@@ -211,12 +216,14 @@ def arg():
 
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
-                        default=150,
+                        # default=150,
+                        default=90,
+                        # default=50,
                         help="total number of epochs")
 
     parser.add_argument("--noise_std", type=float,
                         dest="noise_std",
-                        default=0.1,
+                        default=0.25,
                         help="standard deviation of gaussian noise")
 
     parser.add_argument("--noise_mean", type=float,

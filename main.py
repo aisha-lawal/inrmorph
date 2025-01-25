@@ -108,7 +108,7 @@ if __name__ == "__main__":
     #save images if add_noise is True to use for eval later
     if args.add_noise:
         # output_dir = os.path.join("eval/noisy_data_std0.25/", args.subjectID)
-        output_dir = f"eval/noisy_data/std_{args.noise_std}_{args.subjectID.replace('/', '_')}"
+        output_dir = f"eval/noisy_data_l2_100/std_{args.noise_std}_{args.subjectID.replace('/', '_')}"
         os.makedirs(output_dir, exist_ok=True)
         save_noisy_data(data, images, output_dir)
 
@@ -120,20 +120,20 @@ if __name__ == "__main__":
     #extrapolating last time point, 6 and 12 months after last time point
     if args.extrapolate: 
         #exclude last time point so we compute the dice at eval time
-        # observed_time_points = (time_points[:-1] / 12).tolist()
-        # It=It[:-1]
+        observed_time_points = (time_points[:-1] / 12).tolist()
+        It=It[:-1]
         # or just add more displacement fields to the last time point to extrapolate
-        time_points = torch.cat((time_points, torch.tensor([time_points[-1] + 12], device=device,  dtype=torch.float32)))
+        # time_points = torch.cat((time_points, torch.tensor([time_points[-1] + 12], device=device,  dtype=torch.float32)))
 
     if args.interpolate: 
         #AD interpolation
-        # observed_time_points = [time_points[0], time_points[1], time_points[-1]]
-        # observed_time_points = [otp / 12 for otp in observed_time_points]
-        # It=[It[0], It[1], It[-1]]
-        #MCI interpolation
-        observed_time_points = [time_points[0], time_points[2], time_points[-1]]
+        observed_time_points = [time_points[0], time_points[1], time_points[-1]]
         observed_time_points = [otp / 12 for otp in observed_time_points]
-        It=[It[0], It[2], It[-1]]
+        It=[It[0], It[1], It[-1]]
+        #MCI interpolation
+        # observed_time_points = [time_points[0], time_points[2], time_points[-1]]
+        # observed_time_points = [otp / 12 for otp in observed_time_points]
+        # It=[It[0], It[2], It[-1]]
     normalised_time_points = time_points / 12
 
 
