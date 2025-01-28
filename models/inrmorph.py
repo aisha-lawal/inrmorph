@@ -37,7 +37,8 @@ class InrMorph(pl.LightningModule):
                  hidden_features: int,
                  num_epochs: int,
                  extrapolate: bool,
-                 l2_weight: float
+                 l2_weight: float,
+                 fixed_time_embedding: bool
                  ) -> None:
         super().__init__()
         self.I0 = I0
@@ -57,6 +58,7 @@ class InrMorph(pl.LightningModule):
         self.num_epochs = num_epochs
         self.extrapolate = extrapolate
         self.l2_weight = l2_weight
+        self.fixed_time_embedding = fixed_time_embedding
 
         self.ndims = len(self.patch_size)
         self.nsamples = len(self.It)
@@ -66,7 +68,7 @@ class InrMorph(pl.LightningModule):
         self.hidden_features = hidden_features
         self.hidden_layers = hidden_layers
         self.omega_0 = omega_0
-        self.seed = 42
+        # self.seed = 42
         self.flattened_patch_size = np.prod(self.patch_size)
 
         #reshaping time, this is needed so we can compute voxelwise derivative for temporal and mono smoothness
@@ -80,11 +82,19 @@ class InrMorph(pl.LightningModule):
         self.init_gain = 1
         self.fbs = 5  # k for bias initialization according to paper optimal
         self.transform = SpatialTransform()
-        self.t_mapping = self.time_mapping(self.time_features)
+
+
+        
         self.smoothness = SpatioTemporalRegularization(self.gradient_type, self.patch_size,
                                                  self.batch_size, self.time, self.spatial_reg_type)
 
         self.monotonic_constraint = MonotonicConstraint(self.patch_size, self.batch_size, self.time, self.gradient_type)
+
+
+        if self.fixed_time_embedding:
+            pass
+        else:
+            self.t_mapping = self.time_mapping(self.time_features)
         if self.network_type == NetworkType.FINER:
 
             self.mapping = Finer(in_features=self.in_features, out_features=self.out_features,
@@ -103,6 +113,7 @@ class InrMorph(pl.LightningModule):
             self.mapping = ReLU(layers=[self.in_features, *[self.hidden_features + i * (self.time_features * 2) for
                                                             i in range(self.hidden_layers)], self.out_features],
                                 time_features=self.time_features)
+
 
     def forward(self, coords):
         displacement_t = []  # len samples

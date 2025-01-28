@@ -39,6 +39,7 @@ def main():
         num_epochs=args.num_epochs,
         extrapolate=args.extrapolate,
         l2_weight=args.l2_weight,
+        fixed_time_embedding=args.fixed_time_embedding
     )
     trainer = Trainer(
         fast_dev_run=args.fast_dev_run,
@@ -77,6 +78,7 @@ def main():
         extrapolate=args.extrapolate,
         interpolate=args.interpolate,
         l2_weight=args.l2_weight,
+        fixed_time_embedding=args.fixed_time_embedding
     )
     # logger.log_hyperparams(model_params)
 
@@ -130,6 +132,11 @@ if __name__ == "__main__":
         observed_time_points = [time_points[0], time_points[1], time_points[-1]]
         observed_time_points = [otp / 12 for otp in observed_time_points]
         It=[It[0], It[1], It[-1]]
+        #to add to exixting observed time points
+        # observed_time_points = [time_points[0], time_points[1], time_points[2], time_points[-1]]
+        # observed_time_points = [otp / 12 for otp in observed_time_points]
+        # It=[It[0], It[1], It[2], It[-1]]
+        
         #MCI interpolation
         # observed_time_points = [time_points[0], time_points[2], time_points[-1]]
         # observed_time_points = [otp / 12 for otp in observed_time_points]

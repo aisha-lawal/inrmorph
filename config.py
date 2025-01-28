@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '5'
+os.environ["CUDA_VISIBLE_DEVICES"] = '4'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -26,10 +26,10 @@ def get_datapath():
         return str(Path.cwd() / "data") + "/"
 
 
-def set_seed(seed: int = 42):
-    torch.random.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
+# def set_seed(seed: int = 42):
+#     torch.random.manual_seed(seed)
+#     np.random.seed(seed)
+#     random.seed(seed)
 
 
 #define ENUMS
@@ -90,6 +90,12 @@ def arg():
                         default=False,
                         help="extrapolate beyond observed timepoint")
 
+    parser.add_argument("--fixed_time_embedding",
+                        type=bool,
+                        dest="fixed_time_embedding",
+                        default=False,
+                        help="to use fixed time embedding or generate embedding on the fly")
+
     parser.add_argument("--interpolate",
                         type=bool,
                         dest="interpolate",
@@ -119,8 +125,8 @@ def arg():
 
     parser.add_argument("--spatial_reg", type=float,
                         dest="spatial_reg",
-                        # default=0.01, #current default
-                        default=0.1,
+                        default=0.01, #current default
+                        # default=0.1,
                         # default=1.0, #use for spatial_rate_of_temporal_change
                         help="weight for spatial regularization")
 
@@ -132,16 +138,16 @@ def arg():
 
     parser.add_argument("--temporal_reg", type=float,
                         dest="temporal_reg",
-                        # default=1.0,
+                        default=1.0,
                         # default=0.1,
-                        default=10,
+                        # default=0.1,
 
                         help="weight for temporal regularization")
 
     parser.add_argument("--monotonicity_reg", type=float,
                         dest="monotonicity_reg",
-                        default=0.1, 
-                        # default=1.0,
+                        # default=0.02,
+                        default=0.5,
                         help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
@@ -175,12 +181,12 @@ def arg():
 
     parser.add_argument("--lr", type=float,
                         dest="lr",
-                        default=1e-5,
+                        default=4e-5,
                         help="learning rate")
 
     parser.add_argument("--weight_decay", type=float,
                         dest="weight_decay",
-                        default=1e-5,
+                        default=4e-5,
                         help="weight decay")
 
     parser.add_argument("--scale_factor", type=float,
@@ -216,14 +222,14 @@ def arg():
 
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
-                        # default=150,
                         default=90,
+                        # default=90,
                         # default=50,
                         help="total number of epochs")
 
     parser.add_argument("--noise_std", type=float,
                         dest="noise_std",
-                        default=0.25,
+                        default=0.5,
                         help="standard deviation of gaussian noise")
 
     parser.add_argument("--noise_mean", type=float,
