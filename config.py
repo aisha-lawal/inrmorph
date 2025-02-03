@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '4'
+os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -33,7 +33,6 @@ def get_datapath():
 
 
 #define ENUMS
-
 class NetworkType(Enum):
     FINER: ClassVar[str] = "finer"
     SIREN: ClassVar[str] = "siren"
@@ -125,33 +124,32 @@ def arg():
 
     parser.add_argument("--spatial_reg", type=float,
                         dest="spatial_reg",
-                        default=0.01, #current default
-                        # default=0.1,
-                        # default=1.0, #use for spatial_rate_of_temporal_change
+                        # default=0.01, #current default
+                        default=0.1,
                         help="weight for spatial regularization")
 
     parser.add_argument("--l2_weight", type=float,
                         dest="l2_weight",
                         default=100,
-                        # default=50,
+                        # default=10,
                         help="l2 regularization weight")
 
     parser.add_argument("--temporal_reg", type=float,
                         dest="temporal_reg",
-                        default=1.0,
-                        # default=0.1,
-                        # default=0.1,
+                        # default=1.0,
+                        default=0.1,
 
                         help="weight for temporal regularization")
 
     parser.add_argument("--monotonicity_reg", type=float,
                         dest="monotonicity_reg",
-                        # default=0.02,
-                        default=0.5,
+                        # default=0.5,
+                        default=0.1,
                         help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
                         dest="subjectID",
+                        # default="MCI/002_S_1155",
                         default="AD/005_S_0814",
                         required=False,
                         help="subject to train, include patient type")
@@ -181,6 +179,7 @@ def arg():
 
     parser.add_argument("--lr", type=float,
                         dest="lr",
+                        # default=1e-5,
                         default=4e-5,
                         help="learning rate")
 
@@ -223,8 +222,7 @@ def arg():
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
                         default=90,
-                        # default=90,
-                        # default=50,
+                        # default=150,
                         help="total number of epochs")
 
     parser.add_argument("--noise_std", type=float,
@@ -246,7 +244,6 @@ def arg():
     args = parser.parse_args()
     args.batch_size = 48 if args.gradient_type == "finite_difference" else 12
     # args.batch_size = 48 if args.gradient_type == "finite_difference" else 8
-    #set LR and
     print(f"args: {args.extrapolate, args.add_noise}")
     return args
 
@@ -255,21 +252,11 @@ def wandb_setup():
     args = arg()
 
     model_checkpoint = ModelCheckpoint(
-        # filename="{val_loss:.5f}-{epoch:02d}-" + args.subjectID.split("/")[-1] + "_" + args.logger_name,
         filename="{val_loss:.5f}-{epoch:02d}-" + "_" + args.logger_name,
         save_top_k=1,
         monitor="val_loss",
         mode="min",
     )
-
-    # model_checkpoint = DelayedModelCheckpoint(
-    # start_epoch=75, #start checking after 70 epochs
-    # filename="{val_loss:.5f}-{epoch:02d}-" + "_" + args.logger_name,
-    # save_top_k=1,
-    # save_last=True,
-    # monitor="val_loss",
-    # mode="min",
-    # )
 
     early_stopping = EarlyStopping(
         monitor="val_loss",

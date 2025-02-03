@@ -119,10 +119,7 @@ class InrMorph(pl.LightningModule):
         displacement_t = []  # len samples
         for idx, time in enumerate(self.time):
             t_n = time.view(self.batch_size, self.flattened_patch_size, 1) 
-            # t_n = time.expand(self.batch_size, self.flattened_patch_size, 1)
-            t_n = self.t_mapping(t_n)  # concat this with every layer.
-            #note that coords is always same we do this because we want to be
-            #able to compute spatial rate of change smoothness over time
+            t_n = self.t_mapping(t_n)  # concat this with every hidden layer of the INR.
             phi_dims = self.mapping(coords, t_n)  # single layer
             displacement_t.append(phi_dims)
 
@@ -168,7 +165,6 @@ class InrMorph(pl.LightningModule):
         coords = coords.unsqueeze(0)
         batch_size = 1
         tm = time.unsqueeze(0).unsqueeze(0)
-        # tm = tm.view(batch_size, coords.shape[1], 1) #analytic gradient
         tm = tm.expand(batch_size, coords.shape[1], 1)
 
         tm = self.t_mapping(tm)
@@ -176,56 +172,21 @@ class InrMorph(pl.LightningModule):
 
         return displacement
 
-    # def configure_optimizers(self):
-    #     optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
-    #     scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
-    #     return {
-    #         'optimizer': optimizer,
-    #         'lr_scheduler': {
-    #             'scheduler': scheduler,
-    #             'monitor': 'val_loss', 
-    #             'interval': 'epoch',
-    #             'frequency': 1     
-    #         }
-    #     }
-    #     return optimizer
-
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
         return optimizer
 
-    # start with high learning rate and decay to 1e-5
-    # def configure_optimizers(self):
-    #     optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
-
-    #     def lr_lambda(epoch):
-    #         start_lr = 1e-3
-    #         end_lr = 1e-5
-    #         total_epochs_schedule = self.num_epochs - 30 #introduce mono loss before last 30 epochs
-    #         factor = (end_lr / start_lr) ** (1 / total_epochs_schedule)
-    #         return factor ** epoch
-
-    #     scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
-    #     return {
-    #         'optimizer': optimizer,
-    #         'lr_scheduler': {
-    #             'scheduler': scheduler,
-    #             'monitor': 'val_loss',
-    #             'interval': 'epoch',
-    #             'frequency': 1
-    #         }
-    #     }
-
+   
 
     def compute_transform(self, coords, displacement):
         """
         Args:
         Here the baseline cooridnate (coords) serve as a reference coordinate which we align to. 
-            - displacement (list of torch.tensor (*patch_size, ndims)): predicted displacement for each t in It, how  each point
-            in the baseline should move to match the morphology of the followup at each point t
+            - displacement (list of torch.tensor (*patch_size, ndims)): predicted displacement for each t in It, how each location in coords
+            It should move to align with I0 (baseline)
             - coords (torch.tensor): original coordinate used for warped
             - we warp the follow up image to the base line coordinate for each t, to have a uniform coordinate system (baseline)
-            warp function at time = 0 should be the identity transform
+            warp function at time = 0 should be the identity transform so we compute L2 norm of the displacement at time 0
 
         """
         deformation_field_t = []
@@ -250,16 +211,15 @@ class InrMorph(pl.LightningModule):
     def compute_loss(self, warped_t, fixed, deformation_field_t, coords):
         """
         Args: 
-            warped_t (list of torch.Tensor): contains warped images at time t of shape
+            warped_t (list of torch.Tensor):  warped images at time t of shape (except interpolated and interpolated points)
             [batch_size, *patch_size] i.e [batch_size, 32, 32, 32]
 
-            fixed_t (list of torch.Tensor): list contains It at time t warped with original coords of shape 
+            fixed_t (list of torch.Tensor): baseline coords patchsized
             [batch_size, *patch_size] i.e [batch_size, 32, 32, 32]
 
-            deformation_field_t (list of torch.Tensor): contains deformation field at time t of shape [batch_size, flattened_patch, ndims]
+            deformation_field_t (list of torch.Tensor):  deformation field at time t of shape [batch_size, flattened_patch, ndims]
 
-            coords: coordinates of shape [len(time), batch_size, flattened_patch, ndims] #note that len(time had to be added
-                to be able to compute spatial rate of change derivative)
+            coords: coordinates of shape [len(time), batch_size, flattened_patch, ndims] 
 
         Returns: 
 
@@ -276,23 +236,18 @@ class InrMorph(pl.LightningModule):
                 dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
                 dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
                 similarity_at_0 = self.l2_weight * torch.mean(torch.sqrt(dx**2 + dy**2 + dz**2)) #l2 norm
-                similarity_t = similarity_at_0
 
-                # similarity += similarity_t # for NCC plot, get rid of this if getting rid  of continue
-                # continue #dont regularize at time 0
             #for extrapolated point and interpolated points compute the regularization alone, 
-            #we dont observe data at this point but we can generate deformation field
+            #we dont observe data at this point but we can generate a deformation field
             elif tm not in self.observed_time_points:
                 similarity_t = 0
             else:
                 observed_id = self.observed_time_points.index(tm)
-                # print(f"id is {observed_id}, tm is {tm}")
                 ncc = self.ncc_loss(warped_t[observed_id - 1], fixed) #we start from 1 because we dont have warped_t at 0
                 similarity_t = ncc
 
             similarity += similarity_t # for NCC plot
             
-    
             if self.gradient_type == GradientType.ANALYTIC_GRADIENT:
                 #spatial
                 spatial_smoothness_t, jac_det[idx] = self.smoothness.spatial(deformation_field_t[idx], coords)
@@ -312,7 +267,7 @@ class InrMorph(pl.LightningModule):
                 total_loss += similarity_t
     
             # if self.optimizers().param_groups[0]['lr'] <= 1e-5:
-            if self.current_epoch < 200: #start temporal and mono smoothness after 60 epochs
+            if self.current_epoch > 200: #start temporal and mono smoothness after 60 epochs
                 #condition for spatial smoothness in temporal rate of change
                 if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
                     temporal_smoothness = self.smoothness.temporal(deformation_field_t, coords) * self.temporal_reg_weight

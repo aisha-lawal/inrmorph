@@ -80,10 +80,10 @@ def main():
         l2_weight=args.l2_weight,
         fixed_time_embedding=args.fixed_time_embedding
     )
-    # logger.log_hyperparams(model_params)
+    logger.log_hyperparams(model_params)
 
     print("######################Training##################")
-    # logger.watch(model=model, log_freq=10, log_graph=True)
+    logger.watch(model=model, log_freq=10, log_graph=True)
     trainer.fit(model=model, train_dataloaders=train_generator, val_dataloaders=val_generator)
     save_logger_name(args.logger_name)
 
@@ -104,13 +104,12 @@ if __name__ == "__main__":
     """
     print("image shape: ", images[0].shape)
     num_steps_per_epoch = args.num_patches // args.batch_size
-    I0 = images[0]  # moving #260, 260, 200
+    I0 = images[0]  
     It = images 
 
     #save images if add_noise is True to use for eval later
     if args.add_noise:
-        # output_dir = os.path.join("eval/noisy_data_std0.25/", args.subjectID)
-        output_dir = f"eval/noisy_data_l2_100/std_{args.noise_std}_{args.subjectID.replace('/', '_')}"
+        output_dir = f"eval/noisy_data_l2_100_rand/std_{args.noise_std}_{args.subjectID.replace('/', '_')}"
         os.makedirs(output_dir, exist_ok=True)
         save_noisy_data(data, images, output_dir)
 
@@ -128,7 +127,6 @@ if __name__ == "__main__":
         # time_points = torch.cat((time_points, torch.tensor([time_points[-1] + 12], device=device,  dtype=torch.float32)))
 
     if args.interpolate: 
-        #AD interpolation
         observed_time_points = [time_points[0], time_points[1], time_points[-1]]
         observed_time_points = [otp / 12 for otp in observed_time_points]
         It=[It[0], It[1], It[-1]]
@@ -137,10 +135,6 @@ if __name__ == "__main__":
         # observed_time_points = [otp / 12 for otp in observed_time_points]
         # It=[It[0], It[1], It[2], It[-1]]
         
-        #MCI interpolation
-        # observed_time_points = [time_points[0], time_points[2], time_points[-1]]
-        # observed_time_points = [otp / 12 for otp in observed_time_points]
-        # It=[It[0], It[2], It[-1]]
     normalised_time_points = time_points / 12
 
 

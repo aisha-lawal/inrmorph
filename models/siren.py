@@ -11,7 +11,6 @@ class Siren(nn.Module):
         self.omega_0 = omega_0
         self.time_features = time_features
 
-        # Make the layers
         self.layers = []
         for i in range(self.n_layers):
             with torch.no_grad():
