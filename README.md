@@ -1,25 +1,40 @@
-#lowhighfieldreg
-Spatiotemporal image registration allows for comparison of multiple samples from a subject at different time points. Analysing the morphological changes of anatomical structures over a period of time is important in many clinical studies, this comparison necessitates registering the samples/images to a common coordinate space.  Such analysis can be performed by registering the acquired images at different time points. For a typical longitudinal studies, multiple high resolution images at different time points need to be acquired for each subject. While the result from these high-resolution images can be considered "gold-standard" as they maximimize signal to resolution ratio, the acquisition process is less accessible, not sustainable (with high carbon emmission) and more expensive. However, for longitudinal analayis high field images that vary over time is necessary to be able to track the changes, this is a limiting factor as acqusition of multiple high field images per subject is a time consuming and computationally expensive process. We propose a method that infers the local changes in shape using noisy/low field data. We implement a ..... that.....
+# Capturing Longitudinal Changes in Brain Morphology Using Temporally Parameterized Neural Displacement Fields.
+
+
+Authors: Aisha Lawal Shuaibu, Kieran A. Gibb, Peter A. Wijeratne, and Ivor J. A. Simpson.
+
+## Summary
+Longitudinal image registration enables studying temporal changes in brain morphology which is useful in applications where monitoring the growth or atrophy of specific structures is important. However this task is challenging due to; noise/artifacts in the data and quantifying small anatomical changes between sequential scans. We propose a novel longitudinal registration method that models structural changes using temporally parameterized neural displacement fields. Specifically, we implement an implicit neural representation (INR) using a multi-layer perceptron that serves as a continuous coordinate-based approximation of the deformation field at any time point. In effect, for any $N$ scans of a particular subject, our model takes as input a 3D spatial coordinate location $x, y, z$ and a corresponding temporal representation $t$ and learns to describe the continuous morphology of structures for both observed and unobserved points in time. Furthermore, we leverage the analytic derivatives of the INR to derive a new regularization function that enforces monotonic rate of change in the trajectory of the voxels, which is shown to provide more biologically plausible patterns. We demonstrate the effectiveness of our method on 4D brain MR registration.
+
+
+## Prerequisites
+- `Python`
+- `Pytorch`
+- `NumPy`
+- `NiBabel`
+
+For Visualization:
+- `Matplotlib`
+- `Seaborn`
+- `Neurite`
+## 
+![Alt text](prepreocessing/figures/mainfigure.png)
+
+## Inference
+Predicting $|J|$ maps of an AD subject \
+![Video](prepreocessing/figures/jacobian_maps_overlay.gif)
 
 
 
 
-Spatiotemporal image registration allows for comparison of multiple samples from a subject at different time points. Analysing the morphological changes of anatomical structures over a period of time is important in many clinical studies, this comparison necessitates registering the samples/images acquired at different time points to a common coordinate space. For a typical longitudinal studies, multiple high resolution images at different time points need to be acquired for each subject. While the result from these high-resolution images can be considered "gold-standard" as they try to maximimize signal to noise ratio, the acquisition process is less accessible, not sustainable and more expensive. We propose a method that elminates the need for high resolution images at each time point, our method uses a \emph{single} high resolution image at time t_i and low field images at other time points. We implement an INR that maps the set of coordinate points to a "latent high field" representation of the low field images, we generate a low field representation of these latents which we then use to minimize the loss.
+## Train your own model
+
+instructions coming soon
+#### Contact 
+For any questions or potential collaborations contact any of the following people:
+
+Aisha Lawal Shuaibu (corresponding Author): a.shuaibu@sussex.ac.uk
+
+Ivor J. A. Simpson: i.simpson@sussex.ac.uk
 
 
-However, for longitudinal analayis high field images that vary over time is necessary to be able to track the changes, this is a limiting factor as acqusition of multiple high field images per subject is a time consuming and computationally expensive process. We propose a method that infers the local changes in shape using noisy/low field data. We implement a ..... that.....
-
-
-
-
-*to do*
-1. write abstract 
-2. Draw figure
-3. use just single paired images(one high res another low res), register both images using INR and 
-4. define INR such that it takes \t_o 
-
-
-
-
-
-We describe what we think the shape of the brain will look like at any point in time given the baseline image!!
