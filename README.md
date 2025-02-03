@@ -1,6 +1,5 @@
 # Capturing Longitudinal Changes in Brain Morphology Using Temporally Parameterized Neural Displacement Fields.
 
-This is the official Pytorch implementation of "HyperPredict: Estimating Hyperparameter Effects for Instance-Specific Regularization in Deformable Image Registration." (MELBA 2024)
 
 Authors: Aisha Lawal Shuaibu, Kieran A. Gibb, Peter A. Wijeratne, and Ivor J. A. Simpson.
 
@@ -19,19 +18,19 @@ For Visualization:
 - `Seaborn`
 - `Neurite`
 ## 
-![Alt text](eval/figures/mainfigure.png)
+![Alt text](prepreocessing/figures/mainfigure.png)
 
 ## Inference
 Predicting $|J|$ maps of an AD subject \
-![Video](eval/figures/jacobian_maps_overlay.mp4)
+![Video](prepreocessing/figures/jacobian_maps_overlay.gif)
 
 
 
 
 ## Train your own model
 
-
-##### Contact 
+instructions coming soon
+#### Contact 
 For any questions or potential collaborations contact any of the following people:
 
 Aisha Lawal Shuaibu (corresponding Author): a.shuaibu@sussex.ac.uk
