@@ -9,7 +9,6 @@ import shutil
 
 """
 Just change the path default
-
 """
 parser = argparse.ArgumentParser()
 parser.add_argument("--fixed", type=str, help="path to template image folder",
@@ -37,7 +36,7 @@ def affine_reg():
         #warp
         os.system("reg_resample -ref {} -flo {} -trans affine_matrix.txt -res {}".format(fixed, mi, transformed_image))
 
-    #run synthseg script here
+    #run synthseg script here (currently ran on bayes server)
 
 if __name__ == "__main__":
     affine_reg()
