@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 import numpy as np
 
-
+#final
 class Siren(nn.Module):
     def __init__(self, layers, omega_0, time_features):
 
@@ -34,6 +34,45 @@ class Siren(nn.Module):
             coords = torch.sin(self.omega_0 * layer(coords))
         coords = torch.cat([coords, time], dim=-1)
         return self.layers[-1](coords)
+
+#time only in first layer
+# class Siren(nn.Module):
+#     def __init__(self, layers, omega_0, time_features):
+
+#         super(Siren, self).__init__()
+#         self.n_layers = len(layers) - 1
+#         self.omega_0 = omega_0
+#         self.time_features = time_features
+
+#         self.layers = []
+#         for i in range(self.n_layers):
+#             with torch.no_grad():
+#                 if i == 0:
+#                     self.layers.append(nn.Linear(layers[i], layers[i + 1]))
+#                     self.layers[-1].weight.uniform_(-1 / layers[i], 1 / layers[i])
+
+#                 elif i == 1:
+#                     self.layers.append(nn.Linear(layers[i] + self.time_features, layers[i + 1]))
+#                     self.layers[-1].weight.uniform_(
+#                         -np.sqrt(6 / layers[i]) / self.omega_0,
+#                         np.sqrt(6 / layers[i]) / self.omega_0,
+#                     )
+#                 else:
+#                     self.layers.append(nn.Linear(layers[i], layers[i + 1]))
+#                     self.layers[-1].weight.uniform_(
+#                         -np.sqrt(6 / layers[i]) / self.omega_0,
+#                         np.sqrt(6 / layers[i]) / self.omega_0,
+#                     )
+
+#         self.layers = nn.Sequential(*self.layers)
+
+#     def forward(self, coords, time):
+#         coords = torch.sin(self.omega_0 * self.layers[0](coords))
+#         coords = torch.cat([coords, time], dim=-1)
+#         coords = torch.sin(self.omega_0 * self.layers[1](coords))
+#         for layer in self.layers[2:-1]:
+#             coords = torch.sin(self.omega_0 * layer(coords))
+#         return self.layers[-1](coords)
 
 #time not in final layer
 # class Siren(nn.Module):

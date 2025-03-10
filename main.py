@@ -125,11 +125,12 @@ if __name__ == "__main__":
         It=It[:-1]
         # or just add more displacement fields to the last time point to extrapolate
         # time_points = torch.cat((time_points, torch.tensor([time_points[-1] + 12], device=device,  dtype=torch.float32)))
-
+        # time_points = torch.tensor([0.0, 12.0, 24.0, 30.0, 37.0], device=device,  dtype=torch.float32)
     if args.interpolate: 
         observed_time_points = [time_points[0], time_points[1], time_points[-1]]
         observed_time_points = [otp / 12 for otp in observed_time_points]
         It=[It[0], It[1], It[-1]]
+        
         #to add to exixting observed time points
         # observed_time_points = [time_points[0], time_points[1], time_points[2], time_points[-1]]
         # observed_time_points = [otp / 12 for otp in observed_time_points]
