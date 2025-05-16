@@ -229,6 +229,7 @@ class InrMorph(pl.LightningModule):
         similarity = 0
         temporal_smoothness = 0
         spatial_smoothness = 0
+        similarity_t = 0
         jac_det = torch.zeros(len(self.time.unique()), self.batch_size, self.flattened_patch_size).to(device)
         for idx, tm in enumerate(self.time.unique()):
             if idx == 0:
@@ -236,7 +237,7 @@ class InrMorph(pl.LightningModule):
                 dy = deformation_field_t[idx][:, :, 1] - coords[:, :, 1]
                 dz = deformation_field_t[idx][:, :, 2] - coords[:, :, 2]
                 similarity_at_0 = self.l2_weight * torch.mean(torch.sqrt(dx**2 + dy**2 + dz**2)) #l2 norm
-
+                similarity_t = similarity_at_0
             #for extrapolated point and interpolated points compute the regularization alone, 
             #we dont observe data at this point but we can generate a deformation field
             elif tm not in self.observed_time_points:
@@ -267,7 +268,7 @@ class InrMorph(pl.LightningModule):
                 total_loss += similarity_t
     
             # if self.optimizers().param_groups[0]['lr'] <= 1e-5:
-            if self.current_epoch > 200: #start temporal and mono smoothness after 60 epochs
+            if self.current_epoch < 200: #start temporal and mono smoothness after 60 epochs
                 #condition for spatial smoothness in temporal rate of change
                 if self.spatial_reg_type == SpatialRegularizationType.SPATIAL_JACOBIAN_MATRIX_PENALTY:
                     temporal_smoothness = self.smoothness.temporal(deformation_field_t, coords) * self.temporal_reg_weight

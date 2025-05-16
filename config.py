@@ -124,32 +124,34 @@ def arg():
 
     parser.add_argument("--spatial_reg", type=float,
                         dest="spatial_reg",
-                        # default=0.01, #current default
-                        default=0.1,
+                        default=0.01, #current default
+                        # default=0.1,
                         help="weight for spatial regularization")
 
     parser.add_argument("--l2_weight", type=float,
                         dest="l2_weight",
                         default=100,
-                        # default=10,
+                        # default=1.0,
                         help="l2 regularization weight")
 
     parser.add_argument("--temporal_reg", type=float,
                         dest="temporal_reg",
-                        # default=1.0,
-                        default=0.1,
+                        default=1.0,
+                        # default=0.1,
 
                         help="weight for temporal regularization")
 
     parser.add_argument("--monotonicity_reg", type=float,
                         dest="monotonicity_reg",
-                        # default=0.5,
-                        default=0.1,
+                        default=0.5,
+                        # default=0.1,
                         help="weight for monotonicity regularization")
 
     parser.add_argument("--subjectID", type=str,
                         dest="subjectID",
                         # default="MCI/002_S_1155",
+                        # default="MCI/009_S_1030", #time embedding exp
+                        # default="MCI/116_S_0361",
                         default="AD/005_S_0814",
                         required=False,
                         help="subject to train, include patient type")
@@ -215,14 +217,14 @@ def arg():
 
     parser.add_argument("--num_patches", type=int,
                         dest="num_patches",
+                        # default=2000,
                         default=2000,
-                        # default=3000,
                         help="total number of patches to be sampled for both train and val")
 
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
-                        default=90,
-                        # default=150,
+                        # default=90,
+                        default=150,
                         help="total number of epochs")
 
     parser.add_argument("--noise_std", type=float,
@@ -244,7 +246,7 @@ def arg():
     args = parser.parse_args()
     args.batch_size = 48 if args.gradient_type == "finite_difference" else 12
     # args.batch_size = 48 if args.gradient_type == "finite_difference" else 8
-    print(f"args: {args.extrapolate, args.add_noise}")
+    print(f"args: {args.extrapolate, args.add_noise, args.interpolate}")
     return args
 
 
