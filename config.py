@@ -12,7 +12,7 @@ from lightning.pytorch.loggers import WandbLogger
 
 os.environ["NEURITE_BACKEND"] = 'pytorch'
 torch.set_float32_matmul_precision('medium')
-os.environ["CUDA_VISIBLE_DEVICES"] = '4'
+os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -130,7 +130,7 @@ def arg():
 
     parser.add_argument("--l2_weight", type=float,
                         dest="l2_weight",
-                        default=10,
+                        default=100,
                         # default=1.0,
                         help="l2 regularization weight")
 
@@ -150,9 +150,9 @@ def arg():
     parser.add_argument("--subjectID", type=str,
                         dest="subjectID",
                         # default="MCI/002_S_1155",
-                        default="MCI/009_S_1030", #time embedding exp
+                        # default="MCI/009_S_1030", #time embedding exp
                         # default="MCI/116_S_0361",
-                        # default="AD/005_S_0814",
+                        default="AD/005_S_0814",
                         required=False,
                         help="subject to train, include patient type")
     
@@ -223,8 +223,8 @@ def arg():
 
     parser.add_argument("--num_epochs", type=int,
                         dest="num_epochs",
-                        default=90,
-                        # default=150,
+                        # default=90,
+                        default=150,
                         help="total number of epochs")
 
     parser.add_argument("--noise_std", type=float,

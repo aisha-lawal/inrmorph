@@ -25,6 +25,14 @@ Predicting $|J|$ maps of an AD subject \
 ![Video](prepreocessing/figures/jacobian_maps_overlay.gif)
 
 
+Predicting $|J|$ maps of an MCI subject \
+![Video](prepreocessing/figures/jacobian_maps_overlay_mci.mp4)
+
+
+Predicting $|J|$ maps of an Control subject \
+![Video](prepreocessing/figures/jacobian_maps_overlay_cn.mp4)
+
+
 
 
 ## Train your own model
