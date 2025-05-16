@@ -22,15 +22,15 @@ For Visualization:
 
 ## Inference
 Predicting $|J|$ maps of an AD subject \
-![Video](prepreocessing/figures/jacobian_maps_overlay.gif)
+![Video](prepreocessing/figures/jacobian_maps_overlay_ad.gif)
 
 
 Predicting $|J|$ maps of an MCI subject \
-![Video](prepreocessing/figures/jacobian_maps_overlay_mci.mp4)
+![Video](prepreocessing/figures/jacobian_maps_overlay_mci.gif)
 
 
 Predicting $|J|$ maps of an Control subject \
-![Video](prepreocessing/figures/jacobian_maps_overlay_cn.mp4)
+![Video](prepreocessing/figures/jacobian_maps_overlay_cn.gif)
 
 
 
